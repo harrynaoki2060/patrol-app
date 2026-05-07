@@ -1,0 +1,1931 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="安全パトロール">
+  <meta name="theme-color" content="#1e40af">
+  <title>安全パトロール点検表</title>
+  <link rel="manifest" href="manifest.json">
+  <!-- iOS ホーム画面アイコン -->
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
+  <!-- SheetJS: Excel出力ライブラリ (ローカル配置でオフライン対応) -->
+  <script defer src="./xlsx.full.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      font-size: 16px;
+    }
+
+    .header {
+      background: #1e40af; color: white;
+      padding: 14px 18px 12px;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    .header h1 { font-size: 17px; font-weight: 700; margin-bottom: 3px; }
+    .header-meta { font-size: 12px; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .main { padding: 14px 14px 120px; max-width: 920px; margin: 0 auto; }
+
+    .tab-nav { display: flex; gap: 8px; margin-bottom: 14px; }
+    .tab-btn {
+      flex: 1; padding: 13px 8px;
+      border: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      background: white; color: #6b7280;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      font-family: inherit;
+      touch-action: manipulation;
+    }
+    .tab-btn.active { background: #1e40af; color: white; }
+    .tab-btn.new-btn { flex: 0 0 72px; background: #f0fdf4; color: #16a34a; }
+
+    .section { background: white; border-radius: 12px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .section-title { font-size: 14px; font-weight: 700; color: #374151; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb; }
+
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .field-row.full { grid-template-columns: 1fr; }
+    .field label { display: block; font-size: 12px; font-weight: 600; color: #6b7280; margin-bottom: 5px; }
+    .field input {
+      width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;
+      font-size: 16px; font-family: inherit; background: #f9fafb; -webkit-appearance: none;
+    }
+    .field input:focus { outline: none; border-color: #3b82f6; background: white; }
+
+    .progress-label { font-size: 13px; color: #6b7280; margin-bottom: 6px; }
+    .progress-bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #22c55e; border-radius: 4px; transition: width 0.3s; }
+    .progress-badges { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .badge.ok  { background: #dcfce7; color: #16a34a; }
+    .badge.ng  { background: #fee2e2; color: #dc2626; }
+    .badge.att { background: #fef3c7; color: #d97706; }
+
+    .category { margin-bottom: 18px; }
+    .category-header { background: #1e40af; color: white; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+
+    .check-item { border: 2px solid #e5e7eb; border-radius: 10px; padding: 13px; margin-bottom: 8px; background: #fafafa; }
+    .check-item.has-ok        { border-color: #86efac; background: #f0fdf4; }
+    .check-item.has-ng        { border-color: #fca5a5; background: #fff5f5; }
+    .check-item.has-attention { border-color: #fcd34d; background: #fffbeb; }
+
+    .check-item-text { font-size: 14px; line-height: 1.65; color: #374151; margin-bottom: 11px; }
+    .item-num { font-weight: 700; color: #1e40af; margin-right: 5px; }
+
+    .check-buttons { display: flex; gap: 7px; }
+    .check-btn {
+      flex: 1; padding: 13px 6px;
+      border: 2px solid; border-radius: 8px;
+      font-size: 15px; font-weight: 700;
+      cursor: pointer; background: white;
+      font-family: inherit; min-height: 52px;
+      touch-action: manipulation;
+      -webkit-appearance: none;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .check-btn.ok         { border-color: #86efac; color: #16a34a; }
+    .check-btn.ok.active  { background: #22c55e; border-color: #22c55e; color: white; }
+    .check-btn.ng         { border-color: #fca5a5; color: #dc2626; }
+    .check-btn.ng.active  { background: #ef4444; border-color: #ef4444; color: white; }
+    .check-btn.att        { border-color: #fcd34d; color: #d97706; }
+    .check-btn.att.active { background: #f59e0b; border-color: #f59e0b; color: white; }
+
+    .notes-textarea {
+      width: 100%; min-height: 120px; padding: 12px;
+      border: 2px solid #e5e7eb; border-radius: 8px;
+      font-size: 16px; font-family: inherit; resize: vertical;
+      background: #f9fafb; -webkit-appearance: none;
+    }
+    .notes-textarea:focus { outline: none; border-color: #3b82f6; background: white; }
+
+    .photo-actions { display: flex; gap: 8px; margin-bottom: 14px; }
+    .photo-action-btn {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 5px;
+      padding: 16px 10px; border: 2px dashed #93c5fd; border-radius: 10px;
+      background: #eff6ff; color: #2563eb;
+      font-size: 13px; font-weight: 700; cursor: pointer;
+      touch-action: manipulation;
+    }
+    .photo-action-btn .icon { font-size: 22px; }
+    .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .photo-thumb { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #e5e7eb; }
+    .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .photo-del {
+      position: absolute; top: 4px; right: 4px;
+      width: 28px; height: 28px;
+      background: rgba(0,0,0,0.65); color: white;
+      border: none; border-radius: 50%;
+      font-size: 16px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-family: inherit; touch-action: manipulation;
+    }
+    .photo-count { font-size: 12px; color: #9ca3af; text-align: center; margin-top: 8px; }
+
+    .footer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 12px 14px; background: white;
+      border-top: 1px solid #e5e7eb;
+      box-shadow: 0 -3px 12px rgba(0,0,0,0.1);
+    }
+    .save-btn {
+      width: 100%; padding: 17px; background: #1e40af; color: white;
+      border: none; border-radius: 12px; font-size: 17px; font-weight: 700;
+      cursor: pointer; font-family: inherit; letter-spacing: 0.5px;
+      touch-action: manipulation;
+    }
+    .save-btn.saved { background: #16a34a; }
+
+    .toast {
+      position: fixed; top: 75px; left: 50%; transform: translateX(-50%);
+      background: #1f2937; color: white; padding: 12px 22px; border-radius: 24px;
+      font-size: 14px; font-weight: 700; z-index: 200;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.25); white-space: nowrap;
+      pointer-events: none; display: none;
+    }
+
+    .history-empty { text-align: center; padding: 40px; color: #9ca3af; font-size: 14px; }
+    .history-item { border: 1px solid #e5e7eb; border-radius: 10px; padding: 13px; margin-bottom: 8px; background: #fafafa; display: flex; align-items: flex-start; gap: 8px; }
+    .history-info { flex: 1; cursor: pointer; }
+    .history-date { font-weight: 700; color: #1e40af; font-size: 14px; margin-bottom: 2px; }
+    .history-sub  { font-size: 12px; color: #6b7280; line-height: 1.6; }
+    .history-del {
+      padding: 8px 11px; background: #fee2e2; border: none; border-radius: 7px;
+      color: #dc2626; font-size: 12px; font-weight: 700; cursor: pointer;
+      font-family: inherit; flex-shrink: 0; touch-action: manipulation;
+    }
+    .history-xlsx {
+      padding: 8px 11px; background: #dcfce7; border: none; border-radius: 7px;
+      color: #16a34a; font-size: 12px; font-weight: 700; cursor: pointer;
+      font-family: inherit; flex-shrink: 0; touch-action: manipulation;
+    }
+
+    /* 工事進捗率スライダー */
+    .rate-wrap { text-align: center; padding: 8px 0 4px; }
+    .rate-display { font-size: 52px; font-weight: 800; color: #1e40af; line-height: 1; margin-bottom: 16px; }
+    .rate-slider {
+      width: 100%; height: 40px;
+      -webkit-appearance: none; appearance: none;
+      background: #e5e7eb; border-radius: 20px; outline: none;
+      cursor: pointer; touch-action: manipulation;
+    }
+    .rate-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 48px; height: 48px;
+      background: #1e40af; border-radius: 50%; cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .rate-labels { display: flex; justify-content: space-between; font-size: 12px; color: #9ca3af; margin: 6px 0 14px; }
+    .rate-num-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .rate-num {
+      width: 90px; padding: 10px; text-align: center;
+      border: 2px solid #e5e7eb; border-radius: 8px;
+      font-size: 22px; font-weight: 700; font-family: inherit;
+      -webkit-appearance: none; touch-action: manipulation;
+    }
+    .rate-num:focus { outline: none; border-color: #3b82f6; }
+    .rate-unit { font-size: 20px; font-weight: 700; color: #374151; }
+
+    /* 特記事項ラベル */
+    .notes-label {
+      display: block; font-size: 13px; font-weight: 700; color: #1e40af;
+      margin-bottom: 6px; padding: 7px 12px;
+      background: #eff6ff; border-radius: 6px;
+      border-left: 4px solid #1e40af;
+    }
+    .notes-item { margin-bottom: 16px; }
+
+    /* Excelエクスポートボタン */
+    .export-btn {
+      width: 100%; padding: 16px;
+      background: #16a34a; color: white;
+      border: none; border-radius: 12px;
+      font-size: 16px; font-weight: 700;
+      cursor: pointer; font-family: inherit;
+      touch-action: manipulation; letter-spacing: 0.5px;
+    }
+    .export-btn:active { background: #15803d; }
+
+    /* PDF出力ボタン */
+    .pdf-btn {
+      width: 100%; padding: 16px; margin-top: 10px;
+      background: #0f766e; color: white;
+      border: none; border-radius: 12px;
+      font-size: 16px; font-weight: 700;
+      cursor: pointer; font-family: inherit;
+      touch-action: manipulation; letter-spacing: 0.5px;
+    }
+    .pdf-btn:active { background: #0d6460; }
+
+    /* 履歴PDFボタン */
+    .history-pdf {
+      padding: 8px 11px; background: #ccfbf1; border: none; border-radius: 7px;
+      color: #0f766e; font-size: 12px; font-weight: 700; cursor: pointer;
+      font-family: inherit; flex-shrink: 0; touch-action: manipulation;
+    }
+
+    /* ===== iOS インストール案内 ===== */
+    .ios-hint {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: #eff6ff; border: 1.5px solid #93c5fd;
+      border-radius: 10px; padding: 12px 14px; margin-bottom: 14px;
+      font-size: 13px; color: #1e40af; line-height: 1.6;
+    }
+    .ios-hint-icon { font-size: 22px; flex-shrink: 0; }
+    .ios-hint-body { flex: 1; }
+    .ios-hint-title { font-weight: 700; margin-bottom: 2px; }
+    .ios-hint-close {
+      flex-shrink: 0; background: none; border: none;
+      font-size: 18px; color: #6b7280; cursor: pointer;
+      padding: 0 4px; touch-action: manipulation;
+    }
+
+    /* ===== 同期バー ===== */
+    .sync-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      background: white; border-radius: 10px; padding: 10px 14px;
+      margin-bottom: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      font-size: 13px;
+    }
+    .net-status { font-weight: 700; flex-shrink: 0; }
+    .net-online  { color: #16a34a; }
+    .net-offline { color: #dc2626; }
+    .unsynced-label { color: #d97706; font-weight: 700; }
+    .sync-now-btn {
+      padding: 6px 14px; background: #1e40af; color: white;
+      border: none; border-radius: 8px; font-size: 12px; font-weight: 700;
+      cursor: pointer; font-family: inherit; touch-action: manipulation;
+    }
+    .sync-now-btn:disabled { background: #9ca3af; cursor: default; }
+    .draft-indicator { margin-left: auto; font-size: 11px; color: #9ca3af; }
+
+    /* 履歴 同期バッジ */
+    .sync-tag {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 1px 6px; border-radius: 8px; margin-left: 6px;
+      vertical-align: middle;
+    }
+    .sync-tag.synced   { background: #dcfce7; color: #16a34a; }
+    .sync-tag.unsynced { background: #fef3c7; color: #d97706; }
+
+    /* ヘッダー内レイアウト */
+    .header { display: flex; align-items: center; gap: 10px; }
+    .header-inner { flex: 1; min-width: 0; }
+    .user-btn {
+      flex-shrink: 0; padding: 7px 12px;
+      background: rgba(255,255,255,0.2); color: white;
+      border: 1px solid rgba(255,255,255,0.4); border-radius: 8px;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+      font-family: inherit; touch-action: manipulation;
+      white-space: nowrap; max-width: 110px;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .user-btn:active { background: rgba(255,255,255,0.35); }
+
+    /* 設定モーダル */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 500; padding: 20px;
+    }
+    .modal-card {
+      background: white; border-radius: 16px;
+      padding: 24px 22px; width: 100%; max-width: 420px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    }
+    .modal-title { font-size: 17px; font-weight: 800; color: #1e40af; margin-bottom: 6px; }
+    .modal-desc  { font-size: 13px; color: #6b7280; margin-bottom: 18px; }
+    .modal-field { margin-bottom: 14px; }
+    .modal-label { display: block; font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 5px; }
+    .modal-input {
+      width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;
+      font-size: 16px; font-family: inherit; background: #f9fafb;
+      -webkit-appearance: none;
+    }
+    .modal-input:focus { outline: none; border-color: #3b82f6; background: white; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .modal-cancel {
+      flex: 1; padding: 13px; background: #f3f4f6; color: #374151;
+      border: none; border-radius: 10px; font-size: 15px; font-weight: 700;
+      cursor: pointer; font-family: inherit; touch-action: manipulation;
+    }
+    .modal-save {
+      flex: 2; padding: 13px; background: #1e40af; color: white;
+      border: none; border-radius: 10px; font-size: 15px; font-weight: 700;
+      cursor: pointer; font-family: inherit; touch-action: manipulation;
+    }
+
+    /* 履歴フィルターバー */
+    .hist-filter-bar {
+      display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .hist-search {
+      flex: 1; min-width: 0; padding: 11px 14px;
+      border: 2px solid #e5e7eb; border-radius: 10px;
+      font-size: 15px; font-family: inherit; background: white;
+      -webkit-appearance: none;
+    }
+    .hist-search:focus { outline: none; border-color: #3b82f6; }
+    .hist-sel {
+      padding: 11px 12px; border: 2px solid #e5e7eb; border-radius: 10px;
+      font-size: 14px; font-family: inherit; background: white;
+      -webkit-appearance: none; cursor: pointer; color: #374151;
+    }
+    .hist-sel:focus { outline: none; border-color: #3b82f6; }
+    .hist-count { font-size: 12px; color: #6b7280; margin-bottom: 8px; padding: 0 2px; }
+
+    @media (min-width: 768px) {
+      .photo-grid { grid-template-columns: repeat(4, 1fr); }
+      .check-btn { flex: 0 0 90px; max-width: 90px; }
+      .check-buttons { justify-content: flex-end; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-inner">
+      <h1>🦺 安全パトロール点検表</h1>
+      <div class="header-meta" id="header-meta">点検日・点検者・工事名を入力してください</div>
+    </div>
+    <button class="user-btn" id="user-btn">⚙ 設定</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- ユーザー設定モーダル -->
+  <div id="settings-modal" class="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <div class="modal-title">👤 ユーザー設定</div>
+      <p class="modal-desc">設定したユーザー名が「点検者」に自動で入力されます</p>
+      <div class="modal-field">
+        <label class="modal-label">ユーザー名（点検者名）</label>
+        <input type="text" id="s-username" class="modal-input" placeholder="氏名を入力">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">所属・部署（任意）</label>
+        <input type="text" id="s-dept" class="modal-input" placeholder="部署名を入力">
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="s-cancel" class="modal-cancel">キャンセル</button>
+        <button type="button" id="s-save"   class="modal-save">💾　保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="tab-nav">
+      <button class="tab-btn active" id="tab-form-btn">✏️ 点検入力</button>
+      <button class="tab-btn" id="tab-hist-btn">📂 履歴（<span id="rec-count">0</span>）</button>
+      <button class="tab-btn new-btn" id="btn-new">＋ 新規</button>
+    </div>
+
+    <!-- iOS インストール案内（未インストール時のみ表示） -->
+    <div id="ios-hint" class="ios-hint" style="display:none">
+      <span class="ios-hint-icon">📲</span>
+      <div class="ios-hint-body">
+        <div class="ios-hint-title">ホーム画面に追加できます</div>
+        Safari 下部の「共有」ボタン →「ホーム画面に追加」をタップ
+      </div>
+      <button type="button" class="ios-hint-close" id="ios-hint-close">✕</button>
+    </div>
+
+    <!-- 同期バー -->
+    <div class="sync-bar" id="sync-bar">
+      <span id="net-status" class="net-status net-offline">🔴 オフライン</span>
+      <span id="unsynced-label" class="unsynced-label" style="display:none">未同期 <span id="unsynced-count">0</span>件</span>
+      <button type="button" id="sync-now-btn" class="sync-now-btn" style="display:none">☁ 今すぐ同期</button>
+      <span id="draft-indicator" class="draft-indicator"></span>
+    </div>
+
+    <!-- フォームビュー -->
+    <div id="form-view">
+      <div class="section">
+        <div class="section-title">📋 基本情報</div>
+        <div class="field-row">
+          <div class="field">
+            <label>点検日</label>
+            <input type="date" id="f-date">
+          </div>
+          <div class="field">
+            <label>点検者</label>
+            <input type="text" id="f-inspector" placeholder="氏名">
+          </div>
+        </div>
+        <div class="field-row full">
+          <div class="field">
+            <label>工事名称</label>
+            <input type="text" id="f-project" placeholder="工事名を入力">
+          </div>
+        </div>
+        <div class="field-row full">
+          <div class="field">
+            <label>受注者</label>
+            <input type="text" id="f-contractor" placeholder="会社名を入力">
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="progress-label" id="prog-label">チェック進捗：0 / 23 項目（0%）</div>
+        <div class="progress-bar"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
+        <div class="progress-badges" id="prog-badges"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">✅ パトロール点検（全23項目）</div>
+        <div id="checklist"></div>
+      </div>
+
+      <!-- 特記事項（3分類） -->
+      <div class="section">
+        <div class="section-title">📝 特記事項</div>
+        <div class="notes-item">
+          <label class="notes-label">① 施工進捗</label>
+          <textarea class="notes-textarea" id="f-notes1" placeholder="施工の進捗状況を入力（空欄OK）"></textarea>
+        </div>
+        <div class="notes-item">
+          <label class="notes-label">② 竣工書類進捗</label>
+          <textarea class="notes-textarea" id="f-notes2" placeholder="竣工書類の進捗状況を入力（空欄OK）"></textarea>
+        </div>
+        <div class="notes-item">
+          <label class="notes-label">③ その他問題点</label>
+          <textarea class="notes-textarea" id="f-notes3" placeholder="その他の問題点を入力（空欄OK）"></textarea>
+        </div>
+      </div>
+
+      <!-- 工事進捗率 -->
+      <div class="section">
+        <div class="section-title">🏗️ 工事進捗率</div>
+        <div class="rate-wrap">
+          <div class="rate-display" id="rate-display">0%</div>
+          <input type="range" id="f-rate" class="rate-slider" min="0" max="100" step="1" value="0">
+          <div class="rate-labels"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+          <div class="rate-num-row">
+            <input type="number" id="f-rate-num" class="rate-num" min="0" max="100" value="0">
+            <span class="rate-unit">%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📷 状況写真</div>
+        <input type="file" id="cam-input" accept="image/*" capture="environment" style="display:none">
+        <input type="file" id="lib-input" accept="image/*" multiple style="display:none">
+        <div class="photo-actions">
+          <label class="photo-action-btn" for="cam-input">
+            <span class="icon">📷</span>カメラ撮影
+          </label>
+          <label class="photo-action-btn" for="lib-input">
+            <span class="icon">🖼</span>ライブラリ
+          </label>
+        </div>
+        <div id="photo-grid" class="photo-grid"></div>
+        <div id="photo-count" class="photo-count">写真なし</div>
+      </div>
+
+      <!-- エクスポート -->
+      <div class="section">
+        <div class="section-title">📊 エクスポート</div>
+        <button type="button" class="export-btn" id="export-btn">📥　Excel で出力（.xlsx）</button>
+        <button type="button" class="pdf-btn"    id="pdf-btn">🖨　PDF で出力（提出用レポート）</button>
+      </div>
+
+    </div><!-- /form-view -->
+
+    <!-- 履歴ビュー -->
+    <div id="history-view" style="display:none">
+      <div class="hist-filter-bar">
+        <input type="text" id="hist-search" class="hist-search" placeholder="🔍 工事名・点検者・日付で検索">
+        <select id="hist-inspector-sel" class="hist-sel">
+          <option value="">👤 全員</option>
+        </select>
+      </div>
+      <div id="hist-count" class="hist-count"></div>
+      <div id="history-list"></div>
+    </div>
+  </div>
+
+  <div class="footer" id="footer">
+    <button class="save-btn" id="save-btn">💾　保存する</button>
+  </div>
+
+  <script>
+    // ============================================================
+    //  チェックリストデータ
+    // ============================================================
+    var CATS = [
+      { name: '安全対策の点検・強化', items: [
+        { id: 1,  text: '主任技術者・監理技術者（資格者証、講習終了証）の確認' },
+        { id: 2,  text: '現場作業者は、作業に適した服装・保護具（保護帽、安全帯、安全チョッキ、安全靴、手袋、ゴーグル等）を身につけているか' },
+        { id: 3,  text: '工事看板の確認（建設業の許可、労災保険関係成立票、再生資源利用計画書、施工体系図、建設業退職者共済制度の標識、緊急連絡体制表、週休２日実施看板）' },
+        { id: 4,  text: '新規入場者教育、月例安全訓練等の実施' },
+        { id: 5,  text: '作業手順の確認＜安全ミーティング（KY活動）＞を行っているか' },
+        { id: 6,  text: '休憩場所等の確保及び現場事務所・休憩所・現場内・現場周辺の美装に努め、快適な作業環境確保への取組' },
+        { id: 7,  text: '救急用具（救急箱等）の設置、熱中症への対策をおこなっているか' }
+      ]},
+      { name: '重大死傷事故防止（作業管理）', items: [
+        { id: 8,  text: '工事区域外へのクレーン等の倒壊防止対策（敷鉄板、地盤改良等による地盤強化）' },
+        { id: 9,  text: '運搬機械等の運行経路等の明示、作業範囲の明示・作業範囲区画状況は適切か' },
+        { id: 10, text: '路肩・のり肩等危険な場所での作業、人との同時作業の有無等を把握し、誘導員・監視員の配置及び立入禁止箇所の措置を明らかにしているか' },
+        { id: 11, text: '誘導員及び作業員には合図・誘導の方法の他、運転者の視認性に関する死角についても周知を図っているか' },
+        { id: 12, text: '建設機械の点検結果表の有無、オペレーター有資格者の確認、騒音及び排ガス状況' },
+        { id: 13, text: '重機作業は無理のない作業となっているか、主たる用途以外の作業はしていないか' },
+        { id: 14, text: '工事安全看板等による周知、通路部の段差・隙間等の解消' },
+        { id: 15, text: '資機材は整理整頓され、作業通路は確保されているか' },
+        { id: 16, text: '1.5m以上の深さでの作業において土留を適正に使用しているか' },
+        { id: 17, text: '積込量は過積載となっていないか' }
+      ]},
+      { name: '重大死傷事故防止（労働環境）', items: [
+        { id: 18, text: '協力会社に一人親方はいるか（特別加入労災保険に加入しているか新規入場を確認）' },
+        { id: 19, text: '作業員の体調の変化について把握できる体制となっているか' },
+        { id: 20, text: '現場の雰囲気は良好か、すべての作業員が働きやすい環境となっているか' }
+      ]},
+      { name: '環境対策の徹底', items: [
+        { id: 21, text: '地元・周辺住民からのクレームや意見等はないか、また真摯に対応できているか' },
+        { id: 22, text: '騒音・振動・粉塵について適正な対策を行っているか' },
+        { id: 23, text: '指定された場所での喫煙は守られているか' }
+      ]}
+    ];
+    var TOTAL = 23;
+
+    // ============================================================
+    //  状態
+    // ============================================================
+    var checks  = {};
+    var photos  = [];
+    var records = [];
+    var db          = null;    // IndexedDB instance
+    var isDirty     = false;   // 未保存の変更あり
+    var draftTimer  = null;    // 自動保存タイマー
+
+    // ============================================================
+    //  工事進捗率スライダー
+    // ============================================================
+    function setRate(v) {
+      v = Math.min(100, Math.max(0, parseInt(v, 10) || 0));
+      document.getElementById('f-rate').value     = v;
+      document.getElementById('f-rate-num').value = v;
+      document.getElementById('rate-display').textContent = v + '%';
+      var grad = 'linear-gradient(to right, #1e40af ' + v + '%, #e5e7eb ' + v + '%)';
+      document.getElementById('f-rate').style.background = grad;
+    }
+
+    // ============================================================
+    //  Excel エクスポート（共通処理）
+    // ============================================================
+    function buildWorkbook(date, project, inspector, checksData, rate, n1, n2, n3) {
+      var wb = XLSX.utils.book_new();
+
+      /* -------- Sheet1: パトロール結果 -------- */
+      var s1 = [['日付','現場名','点検者','カテゴリ','チェック項目','判定']];
+      CATS.forEach(function(cat) {
+        cat.items.forEach(function(item) {
+          s1.push([
+            date, project, inspector,
+            cat.name, item.text,
+            checksData[item.id] || '未確認'
+          ]);
+        });
+      });
+      var ws1 = XLSX.utils.aoa_to_sheet(s1);
+      ws1['!cols'] = [{wch:12},{wch:24},{wch:10},{wch:22},{wch:54},{wch:8}];
+      XLSX.utils.book_append_sheet(wb, ws1, 'パトロール結果');
+
+      /* -------- Sheet2: 工事進捗 -------- */
+      var s2 = [['日付','現場名','工事進捗率（%）']];
+      s2.push([date, project, rate]);
+      var ws2 = XLSX.utils.aoa_to_sheet(s2);
+      ws2['!cols'] = [{wch:12},{wch:24},{wch:18}];
+      XLSX.utils.book_append_sheet(wb, ws2, '工事進捗');
+
+      /* -------- Sheet3: 特記事項 -------- */
+      var s3 = [['日付','現場名','施工進捗','竣工書類進捗','その他問題点']];
+      s3.push([date, project, n1, n2, n3]);
+      var ws3 = XLSX.utils.aoa_to_sheet(s3);
+      ws3['!cols'] = [{wch:12},{wch:24},{wch:40},{wch:40},{wch:40}];
+      XLSX.utils.book_append_sheet(wb, ws3, '特記事項');
+
+      return wb;
+    }
+
+    // フォームの現在内容をExcel出力
+    function exportExcel() {
+      if (typeof XLSX === 'undefined') {
+        alert('Excel出力ライブラリの読み込みに失敗しました。\nインターネット接続を確認してください。');
+        return;
+      }
+      var date      = document.getElementById('f-date').value        || '';
+      var project   = document.getElementById('f-project').value     || '現場名未入力';
+      var inspector = document.getElementById('f-inspector').value   || '';
+      var rate      = parseInt(document.getElementById('f-rate').value, 10) || 0;
+      var n1        = document.getElementById('f-notes1').value || '';
+      var n2        = document.getElementById('f-notes2').value || '';
+      var n3        = document.getElementById('f-notes3').value || '';
+
+      var wb    = buildWorkbook(date, project, inspector, checks, rate, n1, n2, n3);
+      var fname = '安全パトロール_' + project + '_' + (date || 'nodate') + '.xlsx';
+      XLSX.writeFile(wb, fname);
+    }
+
+    // 履歴レコードから直接Excel出力
+    function exportExcelFromRecord(r) {
+      if (typeof XLSX === 'undefined') {
+        alert('Excel出力ライブラリの読み込みに失敗しました。\nインターネット接続を確認してください。');
+        return;
+      }
+      var date      = r.date        || '';
+      var project   = r.projectName || '現場名未入力';
+      var inspector = r.inspector   || '';
+      var rate      = r.progressRate || 0;
+      var n1        = r.notes1 || r.notes || '';
+      var n2        = r.notes2 || '';
+      var n3        = r.notes3 || '';
+
+      var wb    = buildWorkbook(date, project, inspector, r.checks || {}, rate, n1, n2, n3);
+      var fname = '安全パトロール_' + project + '_' + (date || 'nodate') + '.xlsx';
+      XLSX.writeFile(wb, fname);
+    }
+
+    // ============================================================
+    //  PDF レポート HTML 生成（A4 3ページ構成）
+    //  P1: 安全チェック一覧
+    //  P2: 工事進捗率 + 特記事項
+    //  P3+: 写真（3枚/ページ）
+    // ============================================================
+    function buildReportHTML(data) {
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+      function nl2br(s) { return esc(s).replace(/\n/g,'<br>'); }
+
+      var date       = data.date        || '―';
+      var inspector  = data.inspector   || '―';
+      var project    = data.projectName || '―';
+      var contractor = data.contractor  || '';
+      var rate       = data.progressRate || 0;
+
+      // ---- 各ページ共通ミニヘッダー ----
+      function miniHd() {
+        return '<div class="mini-hd">'
+          + '<span class="mh-title">安全パトロール報告書</span>'
+          + '<span class="mh-sep">｜</span>'
+          + '<span>' + esc(project) + '</span>'
+          + '<span class="mh-sep">｜</span>'
+          + '<span>' + esc(date) + '</span>'
+          + '</div>';
+      }
+
+      // ---- P1: チェックリスト ----
+      var rows = '';
+      CATS.forEach(function(cat) {
+        cat.items.forEach(function(item, idx) {
+          var val  = String((data.checks || {})[item.id] || '―');
+          var jCls = val === 'OK' ? ' ok' : val === 'NG' ? ' ng' : val === '注意' ? ' att' : '';
+          rows += '<tr>';
+          if (idx === 0) {
+            rows += '<td class="cat" rowspan="' + cat.items.length + '">' + esc(cat.name) + '</td>';
+          }
+          rows += '<td class="item"><span class="inum">' + item.id + '.</span> ' + esc(item.text) + '</td>';
+          rows += '<td class="judge' + jCls + '">' + esc(val) + '</td>';
+          rows += '</tr>';
+        });
+      });
+
+      var page1 = '<div class="page">'
+        + (contractor ? '<div class="co">' + esc(contractor) + '</div>' : '')
+        + '<div class="rpt-title">安全パトロール報告書</div>'
+        + '<div class="meta">'
+        + '<div class="mi"><span class="ml">点 検 日</span><span class="mv">' + esc(date) + '</span></div>'
+        + '<div class="mi"><span class="ml">パトロール者</span><span class="mv">' + esc(inspector) + '</span></div>'
+        + '<div class="mi full"><span class="ml">工事名称</span><span class="mv">' + esc(project) + '</span></div>'
+        + '</div>'
+        + '<div class="stitle">✅ 安全チェック一覧</div>'
+        + '<table><thead><tr>'
+        + '<th style="width:16%">カテゴリ</th><th style="width:72%">チェック項目</th><th style="width:12%">判定</th>'
+        + '</tr></thead><tbody>' + rows + '</tbody></table>'
+        + '</div>';
+
+      // ---- P2: 進捗率 + 特記事項 ----
+      var notesHtml = '';
+      if (data.notes1) notesHtml += '<div class="ns"><div class="nl">① 施工進捗</div><div class="nb">' + nl2br(data.notes1) + '</div></div>';
+      if (data.notes2) notesHtml += '<div class="ns"><div class="nl">② 竣工書類進捗</div><div class="nb">' + nl2br(data.notes2) + '</div></div>';
+      if (data.notes3) notesHtml += '<div class="ns"><div class="nl">③ その他問題点</div><div class="nb">' + nl2br(data.notes3) + '</div></div>';
+      if (!notesHtml)  notesHtml = '<p class="empty">特記事項なし</p>';
+
+      var page2 = '<div class="page page-break">'
+        + miniHd()
+        + '<div class="stitle">🏗️ 工事進捗率</div>'
+        + '<div class="pval">' + rate + '%</div>'
+        + '<div class="pbwrap"><div class="pbfill" style="width:' + rate + '%"></div></div>'
+        + '<div class="stitle sec-gap">📝 特記事項</div>'
+        + notesHtml
+        + '</div>';
+
+      // ---- P3+: 写真（3枚/ページ） ----
+      var pArr = data.photos || [];
+      var photoPages = '';
+      if (pArr.length === 0) {
+        photoPages = '<div class="page page-break">'
+          + miniHd()
+          + '<div class="stitle">📷 状況写真</div>'
+          + '<p class="empty">写真なし</p>'
+          + '</div>';
+      } else {
+        for (var p = 0; p < pArr.length; p += 3) {
+          var pageNum = Math.floor(p / 3) + 3;
+          photoPages += '<div class="page page-break">'
+            + miniHd()
+            + '<div class="stitle">📷 状況写真</div>'
+            + '<div class="photo-col">';
+          for (var q = p; q < Math.min(p + 3, pArr.length); q++) {
+            photoPages += '<div class="pitem">'
+              + '<img src="' + pArr[q] + '" alt="写真' + (q+1) + '">'
+              + '<div class="pcap">写真 ' + (q+1) + '</div>'
+              + '</div>';
+          }
+          photoPages += '</div></div>';
+        }
+      }
+
+      // ---- CSS ----
+      var css = [
+        '@page{size:A4 portrait;margin:15mm}',
+        '*{box-sizing:border-box;margin:0;padding:0}',
+        'body{font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:9pt;color:#000;background:#fff}',
+
+        /* 印刷バー */
+        '.pbar{position:fixed;top:0;left:0;right:0;background:#0f766e;padding:10px 16px;display:flex;align-items:center;gap:12px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
+        '.pbtn{padding:9px 20px;background:#fff;color:#0f766e;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation}',
+        '.pnote{font-size:12px;color:rgba(255,255,255,.9)}',
+        '.pcls{margin-left:auto;padding:9px 14px;background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;touch-action:manipulation}',
+        '@media print{.pbar{display:none!important}}',
+
+        /* ページラッパー */
+        '.wrap{padding-top:54px}',
+        '@media print{.wrap{padding-top:0}}',
+        '.page{max-width:800px;margin:0 auto;padding:6px}',
+        '@media screen{.page{margin-bottom:40px;border-bottom:2px dashed #e5e7eb;padding-bottom:24px}}',
+        '.page-break{break-before:page;page-break-before:always}',
+
+        /* P1ヘッダー */
+        '.co{text-align:right;font-size:9pt;font-weight:600;color:#374151;margin-bottom:5pt}',
+        '.rpt-title{font-size:17pt;font-weight:800;text-align:center;color:#1e40af;letter-spacing:1.5pt;margin-bottom:10pt}',
+        '.meta{display:grid;grid-template-columns:1fr 1fr;gap:5pt 20pt;padding-bottom:9pt;border-bottom:2.5pt solid #1e40af;margin-bottom:12pt}',
+        '.mi{display:flex;gap:6pt;font-size:9pt;align-items:baseline}',
+        '.ml{font-weight:700;min-width:60pt;color:#6b7280;flex-shrink:0}',
+        '.mv{font-weight:600;color:#111}',
+        '.full{grid-column:1/-1}',
+
+        /* ミニヘッダー（P2以降） */
+        '.mini-hd{display:flex;align-items:center;gap:6pt;font-size:8pt;color:#6b7280;border-bottom:1pt solid #d1d5db;padding-bottom:5pt;margin-bottom:10pt}',
+        '.mh-title{font-weight:700;color:#1e40af}',
+        '.mh-sep{color:#d1d5db}',
+
+        /* セクションタイトル */
+        '.stitle{font-size:10pt;font-weight:700;color:#fff;background:#1e40af;padding:4pt 9pt;margin-bottom:7pt;border-radius:3pt}',
+        '.sec-gap{margin-top:14pt}',
+
+        /* チェックリスト表 */
+        'table{width:100%;border-collapse:collapse;font-size:7.5pt}',
+        'th{background:#dbeafe;border:1px solid #6b7280;padding:4pt 5pt;text-align:center;font-weight:700;font-size:8pt}',
+        'td{border:1px solid #9ca3af;padding:3pt 5pt;vertical-align:top}',
+        '.cat{background:#f3f4f6;font-weight:700;text-align:center;vertical-align:middle;width:16%;font-size:7pt;line-height:1.5}',
+        '.item{width:72%;line-height:1.6}',
+        '.inum{font-weight:700;color:#1e40af;margin-right:2pt}',
+        '.judge{width:12%;text-align:center;font-weight:700;vertical-align:middle;font-size:8.5pt}',
+        '.ok{color:#16a34a}',
+        '.ng{color:#dc2626;background:#fee2e2}',
+        '.att{color:#d97706;background:#fef3c7}',
+
+        /* 進捗率 */
+        '.pval{font-size:30pt;font-weight:800;color:#1e40af;text-align:center;padding:6pt 0}',
+        '.pbwrap{background:#e5e7eb;border-radius:4pt;height:12pt;overflow:hidden;margin:0 24pt 4pt}',
+        '.pbfill{height:100%;border-radius:4pt;background:#1e40af}',
+
+        /* 特記事項 */
+        '.ns{margin-bottom:8pt}',
+        '.nl{font-weight:700;color:#1e40af;border-left:3pt solid #1e40af;padding-left:6pt;margin-bottom:4pt;font-size:9pt}',
+        '.nb{font-size:9pt;line-height:1.7;padding:5pt 8pt;border:1pt solid #e5e7eb;border-radius:3pt;min-height:22pt;white-space:pre-wrap}',
+        '.empty{font-size:9pt;color:#9ca3af;font-style:italic;padding:3pt 0}',
+
+        /* 写真列（3枚/ページ） */
+        '.photo-col{display:flex;flex-direction:column;gap:8pt}',
+        '.pitem{break-inside:avoid;page-break-inside:avoid}',
+        '.pitem img{width:100%;height:auto;display:block;border:1pt solid #e5e7eb;border-radius:3pt}',
+        '.pcap{text-align:center;font-size:8pt;color:#6b7280;margin-top:3pt}',
+        /* 印刷時：3枚がA4に収まるよう最大高を制限 */
+        '@media print{.pitem img{max-height:78mm;object-fit:contain}}'
+      ].join('');
+
+      return '<!DOCTYPE html>'
+        + '<html lang="ja"><head>'
+        + '<meta charset="UTF-8">'
+        + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + '<title>安全パトロール報告書 ' + esc(date) + '</title>'
+        + '<style>' + css + '</style>'
+        + '</head><body>'
+        + '<div class="pbar">'
+        + '<button class="pbtn" onclick="window.print()">🖨　PDFとして保存 / 印刷</button>'
+        + '<span class="pnote">印刷ダイアログで「PDFに保存」を選択してください</span>'
+        + '<button class="pcls" onclick="window.close()">✕ 閉じる</button>'
+        + '</div>'
+        + '<div class="wrap">'
+        + page1
+        + page2
+        + photoPages
+        + '</div>'
+        + '</body></html>';
+    }
+
+    // フォームの現在内容をPDF出力
+    function exportPDF() {
+      var data = {
+        date:         document.getElementById('f-date').value        || '',
+        inspector:    document.getElementById('f-inspector').value   || '',
+        projectName:  document.getElementById('f-project').value     || '',
+        contractor:   document.getElementById('f-contractor').value  || '',
+        checks:       checks,
+        progressRate: parseInt(document.getElementById('f-rate').value, 10) || 0,
+        notes1:       document.getElementById('f-notes1').value || '',
+        notes2:       document.getElementById('f-notes2').value || '',
+        notes3:       document.getElementById('f-notes3').value || '',
+        photos:       photos.slice()
+      };
+      var win = window.open('', '_blank');
+      if (!win) {
+        alert('ポップアップがブロックされました。\nブラウザの設定でこのサイトのポップアップを許可してください。');
+        return;
+      }
+      win.document.write(buildReportHTML(data));
+      win.document.close();
+    }
+
+    // 履歴レコードから直接PDF出力
+    function exportPDFFromRecord(r) {
+      var win = window.open('', '_blank');
+      if (!win) {
+        alert('ポップアップがブロックされました。\nブラウザの設定でこのサイトのポップアップを許可してください。');
+        return;
+      }
+      win.document.write(buildReportHTML(r));
+      win.document.close();
+    }
+
+    // ============================================================
+    //  チェックリストをDOMで直接構築（innerHTML不使用）
+    // ============================================================
+    function buildChecklist() {
+      var container = document.getElementById('checklist');
+
+      CATS.forEach(function(cat) {
+        var catDiv = document.createElement('div');
+        catDiv.className = 'category';
+
+        var header = document.createElement('div');
+        header.className = 'category-header';
+        header.textContent = cat.name;
+        catDiv.appendChild(header);
+
+        cat.items.forEach(function(item) {
+          var itemDiv = document.createElement('div');
+          itemDiv.className = 'check-item';
+          itemDiv.id = 'item-' + item.id;
+
+          // テキスト行
+          var textDiv = document.createElement('div');
+          textDiv.className = 'check-item-text';
+          var numSpan = document.createElement('span');
+          numSpan.className = 'item-num';
+          numSpan.textContent = item.id + '.';
+          textDiv.appendChild(numSpan);
+          textDiv.appendChild(document.createTextNode(item.text));
+          itemDiv.appendChild(textDiv);
+
+          // ボタン行
+          var btnRow = document.createElement('div');
+          btnRow.className = 'check-buttons';
+
+          var specs = [
+            { cls: 'ok',  val: 'OK',   label: '✓ OK'  },
+            { cls: 'ng',  val: 'NG',   label: '✗ NG'  },
+            { cls: 'att', val: '注意', label: '⚠ 注意' }
+          ];
+
+          specs.forEach(function(spec) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'check-btn ' + spec.cls;
+            btn.textContent = spec.label;
+
+            // クロージャで id と val を束縛して直接リスナー登録
+            (function(id, val, button) {
+              button.addEventListener('click', function() {
+                toggleCheck(id, val);
+              });
+            })(item.id, spec.val, btn);
+
+            btnRow.appendChild(btn);
+          });
+
+          itemDiv.appendChild(btnRow);
+          catDiv.appendChild(itemDiv);
+        });
+
+        container.appendChild(catDiv);
+      });
+    }
+
+    // ============================================================
+    //  チェック操作
+    // ============================================================
+    function toggleCheck(id, val) {
+      checks[id] = (checks[id] === val) ? null : val;
+      refreshItem(id);
+      refreshProgress();
+      markDirty();
+    }
+
+    function refreshItem(id) {
+      var val  = checks[id];
+      var el   = document.getElementById('item-' + id);
+      if (!el) return;
+      var btns = el.querySelectorAll('.check-btn');
+
+      el.className = 'check-item'
+        + (val === 'OK'   ? ' has-ok'        : '')
+        + (val === 'NG'   ? ' has-ng'        : '')
+        + (val === '注意' ? ' has-attention' : '');
+
+      btns[0].className = 'check-btn ok'  + (val === 'OK'   ? ' active' : '');
+      btns[1].className = 'check-btn ng'  + (val === 'NG'   ? ' active' : '');
+      btns[2].className = 'check-btn att' + (val === '注意' ? ' active' : '');
+    }
+
+    function refreshProgress() {
+      var ok = 0, ng = 0, att = 0, total = 0;
+      var key;
+      for (key in checks) {
+        if (!checks[key]) continue;
+        total++;
+        if (checks[key] === 'OK')   ok++;
+        if (checks[key] === 'NG')   ng++;
+        if (checks[key] === '注意') att++;
+      }
+      var pct = Math.round(total / TOTAL * 100);
+
+      document.getElementById('prog-label').textContent =
+        'チェック進捗：' + total + ' / ' + TOTAL + ' 項目（' + pct + '%）';
+      document.getElementById('prog-fill').style.width = pct + '%';
+
+      var badgeEl = document.getElementById('prog-badges');
+      badgeEl.innerHTML = '';
+      if (ok)  { var b1 = document.createElement('span'); b1.className='badge ok';  b1.textContent='✓ OK '  +ok +'件'; badgeEl.appendChild(b1); }
+      if (ng)  { var b2 = document.createElement('span'); b2.className='badge ng';  b2.textContent='✗ NG '  +ng +'件'; badgeEl.appendChild(b2); }
+      if (att) { var b3 = document.createElement('span'); b3.className='badge att'; b3.textContent='⚠ 注意 '+att+'件'; badgeEl.appendChild(b3); }
+    }
+
+    // ============================================================
+    //  フィールド変更 → ヘッダー更新
+    // ============================================================
+    function onField() {
+      var date      = document.getElementById('f-date').value;
+      var inspector = document.getElementById('f-inspector').value;
+      var project   = document.getElementById('f-project').value;
+      var parts     = [date, inspector, project].filter(Boolean);
+      document.getElementById('header-meta').textContent =
+        parts.length ? parts.join(' ｜ ') : '点検日・点検者・工事名を入力してください';
+    }
+
+    // ============================================================
+    //  写真
+    // ============================================================
+    // ============================================================
+    //  画像圧縮: 長辺 1600px / JPEG 品質 70%
+    // ============================================================
+    var PHOTO_MAX_LONG = 1600;   // 長辺の上限（px）
+    var PHOTO_QUALITY  = 0.70;   // JPEG 品質
+
+    function compressImage(file, cb) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var img = new Image();
+        img.onload = function() {
+          var w = img.width;
+          var h = img.height;
+
+          // 長辺が上限を超える場合のみ縮小
+          var longSide = Math.max(w, h);
+          if (longSide > PHOTO_MAX_LONG) {
+            var ratio = PHOTO_MAX_LONG / longSide;
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+
+          var canvas = document.createElement('canvas');
+          canvas.width  = w;
+          canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+
+          var dataUrl = canvas.toDataURL('image/jpeg', PHOTO_QUALITY);
+          cb(dataUrl);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function onPhoto(input) {
+      var files = input.files;
+      if (!files || !files.length) return;
+      for (var i = 0; i < files.length; i++) {
+        (function(file) {
+          compressImage(file, function(dataUrl) {
+            photos.push(dataUrl);
+            refreshPhotos();
+          });
+        })(files[i]);
+      }
+      input.value = '';
+    }
+
+    function delPhoto(idx) {
+      photos.splice(idx, 1);
+      refreshPhotos();
+    }
+
+    function refreshPhotos() {
+      var grid  = document.getElementById('photo-grid');
+      var count = document.getElementById('photo-count');
+      // 既存のサムネを全削除
+      while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+      if (!photos.length) {
+        count.textContent = '写真なし';
+        return;
+      }
+      count.textContent = photos.length + '枚';
+
+      photos.forEach(function(src, i) {
+        var thumb = document.createElement('div');
+        thumb.className = 'photo-thumb';
+
+        var img = document.createElement('img');
+        img.src = src;
+        img.alt = '写真' + (i + 1);
+        thumb.appendChild(img);
+
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'photo-del';
+        delBtn.textContent = '×';
+        (function(index) {
+          delBtn.addEventListener('click', function() { delPhoto(index); });
+        })(i);
+        thumb.appendChild(delBtn);
+
+        grid.appendChild(thumb);
+      });
+    }
+
+    // ============================================================
+    //  保存（サーバー保存 → 失敗時 localStorage フォールバック）
+    // ============================================================
+    function doSave() {
+      var record = collectFormData();
+      record.synced = false;
+
+      var btn = document.getElementById('save-btn');
+      btn.textContent = '保存中…';
+      btn.disabled = true;
+
+      // ① IndexedDB にまず保存
+      dbPut('records', record, function(err) {
+        if (err) {
+          btn.textContent = '💾　保存する';
+          btn.disabled = false;
+          alert('ローカル保存に失敗しました。\n写真の枚数が多い場合は減らしてください。');
+          return;
+        }
+
+        // メモリに追加
+        records = records.filter(function(r) { return r.id !== record.id; });
+        records.unshift(record);
+        refreshRecCount();
+        clearDraft();
+
+        btn.textContent = '✓ 保存しました！';
+        btn.classList.add('saved');
+        btn.disabled = false;
+        setTimeout(function() {
+          btn.textContent = '💾　保存する';
+          btn.classList.remove('saved');
+        }, 2200);
+
+        // ② オンラインならサーバーにも同期
+        if (navigator.onLine) {
+          syncRecord(record, function(ok) {
+            if (ok) {
+              record.synced = true;
+              dbPut('records', record, null);
+              for (var i = 0; i < records.length; i++) {
+                if (records[i].id === record.id) { records[i].synced = true; break; }
+              }
+              showToast('保存・同期しました ✓');
+            } else {
+              showToast('保存しました（オフライン保存）');
+            }
+            refreshSyncStatus();
+          });
+        } else {
+          showToast('保存しました（オフライン）');
+          refreshSyncStatus();
+        }
+      });
+    }
+
+    // ============================================================
+    //  新規作成
+    // ============================================================
+    function doNewForm() {
+      if (!confirm('新規作成します。現在の入力内容は保存されません。よろしいですか？')) return;
+      clearForm();
+      switchTab('form');
+    }
+
+    function clearForm() {
+      checks = {};
+      photos = [];
+      clearDraft();
+      document.getElementById('f-date').value       = todayStr();
+      document.getElementById('f-inspector').value  = '';
+      document.getElementById('f-project').value    = '';
+      document.getElementById('f-contractor').value = '';
+      document.getElementById('f-notes1').value     = '';
+      document.getElementById('f-notes2').value     = '';
+      document.getElementById('f-notes3').value     = '';
+      setRate(0);
+      var i;
+      for (i = 1; i <= TOTAL; i++) refreshItem(i);
+      refreshProgress();
+      refreshPhotos();
+      onField();
+    }
+
+    // ============================================================
+    //  履歴から読み込み
+    // ============================================================
+    function loadRecord(id) {
+      var r = null;
+      var i;
+      for (i = 0; i < records.length; i++) {
+        if (records[i].id === id) { r = records[i]; break; }
+      }
+      if (!r) return;
+
+      checks = {};
+      var k;
+      for (k in (r.checks || {})) { checks[k] = r.checks[k]; }
+      photos = (r.photos || []).slice();
+
+      document.getElementById('f-date').value       = r.date || todayStr();
+      document.getElementById('f-inspector').value  = r.inspector || '';
+      document.getElementById('f-project').value    = r.projectName || '';
+      document.getElementById('f-contractor').value = r.contractor || '';
+      document.getElementById('f-notes1').value = r.notes1 || r.notes || '';
+      document.getElementById('f-notes2').value = r.notes2 || '';
+      document.getElementById('f-notes3').value = r.notes3 || '';
+      setRate(r.progressRate || 0);
+      for (i = 1; i <= TOTAL; i++) refreshItem(i);
+      refreshProgress();
+      refreshPhotos();
+      onField();
+      switchTab('form');
+      showToast('記録を読み込みました');
+    }
+
+    // ============================================================
+    //  履歴削除
+    // ============================================================
+    function delRecord(id) {
+      if (!confirm('この記録を削除しますか？')) return;
+
+      // IndexedDB から削除
+      dbDelete('records', id, function() {
+        records = records.filter(function(r) { return r.id !== id; });
+        refreshRecCount();
+        renderHistory();
+        refreshSyncStatus();
+        showToast('削除しました');
+      });
+
+      // サーバーからも削除（失敗しても無視）
+      fetch('/api/records/' + id, { method: 'DELETE' }).catch(function() {});
+    }
+
+    // ============================================================
+    //  履歴レンダリング
+    // ============================================================
+    function renderHistory() {
+      updateInspectorSelect();
+
+      var list    = document.getElementById('history-list');
+      var countEl = document.getElementById('hist-count');
+      while (list.firstChild) list.removeChild(list.firstChild);
+
+      if (!records.length) {
+        countEl.textContent = '';
+        var empty = document.createElement('div');
+        empty.className = 'history-empty';
+        empty.textContent = '保存された記録がありません';
+        list.appendChild(empty);
+        return;
+      }
+
+      var shown = filteredRecords();
+      if (histFilter.text || histFilter.inspector) {
+        countEl.textContent = shown.length + '件表示（全' + records.length + '件）';
+      } else {
+        countEl.textContent = '全' + records.length + '件';
+      }
+
+      if (!shown.length) {
+        var noResult = document.createElement('div');
+        noResult.className = 'history-empty';
+        noResult.textContent = '条件に一致する記録がありません';
+        list.appendChild(noResult);
+        return;
+      }
+
+      var section = document.createElement('div');
+      section.className = 'section';
+
+      var title = document.createElement('div');
+      title.className = 'section-title';
+      title.textContent = '📂 保存済み記録（' + shown.length + '件）';
+      section.appendChild(title);
+
+      shown.forEach(function(r) {
+        var ok = 0, ng = 0, att = 0, total = 0;
+        var k;
+        for (k in (r.checks || {})) {
+          if (!r.checks[k]) continue;
+          total++;
+          if (r.checks[k] === 'NG')   ng++;
+          if (r.checks[k] === '注意') att++;
+        }
+
+        var row = document.createElement('div');
+        row.className = 'history-item';
+
+        var info = document.createElement('div');
+        info.className = 'history-info';
+
+        var dateDiv = document.createElement('div');
+        dateDiv.className = 'history-date';
+        dateDiv.textContent = r.date || '';
+        if (ng)  { var ns = document.createElement('span'); ns.style.cssText='color:#dc2626;margin-left:8px;font-size:11px'; ns.textContent='NG '+ng+'件';   dateDiv.appendChild(ns); }
+        if (att) { var as = document.createElement('span'); as.style.cssText='color:#d97706;margin-left:6px;font-size:11px'; as.textContent='注意 '+att+'件'; dateDiv.appendChild(as); }
+        info.appendChild(dateDiv);
+
+        var syncTag = document.createElement('span');
+        syncTag.className = 'sync-tag ' + (r.synced ? 'synced' : 'unsynced');
+        syncTag.textContent = r.synced ? '✓ 同期済' : '● 未同期';
+        dateDiv.appendChild(syncTag);
+
+        var sub = document.createElement('div');
+        sub.className = 'history-sub';
+        sub.textContent = (r.projectName || '（工事名未入力）');
+        var br = document.createElement('br');
+        sub.appendChild(br);
+        sub.appendChild(document.createTextNode(
+          '点検者：' + (r.inspector || '不明') + '　' + total + '/' + TOTAL + '項目　写真' + (r.photos || []).length + '枚'
+        ));
+        info.appendChild(sub);
+
+        (function(rid) {
+          info.addEventListener('click', function() { loadRecord(rid); });
+        })(r.id);
+        row.appendChild(info);
+
+        var pdfBtn = document.createElement('button');
+        pdfBtn.type = 'button';
+        pdfBtn.className = 'history-pdf';
+        pdfBtn.textContent = '🖨PDF';
+        (function(rec) {
+          pdfBtn.addEventListener('click', function() { exportPDFFromRecord(rec); });
+        })(r);
+        row.appendChild(pdfBtn);
+
+        var xlsxBtn = document.createElement('button');
+        xlsxBtn.type = 'button';
+        xlsxBtn.className = 'history-xlsx';
+        xlsxBtn.textContent = '📥Excel';
+        (function(rec) {
+          xlsxBtn.addEventListener('click', function() { exportExcelFromRecord(rec); });
+        })(r);
+        row.appendChild(xlsxBtn);
+
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'history-del';
+        delBtn.textContent = '削除';
+        (function(rid) {
+          delBtn.addEventListener('click', function() { delRecord(rid); });
+        })(r.id);
+        row.appendChild(delBtn);
+
+        section.appendChild(row);
+      });
+
+      list.appendChild(section);
+    }
+
+    function refreshRecCount() {
+      document.getElementById('rec-count').textContent = records.length;
+    }
+
+    // ============================================================
+    //  タブ切り替え
+    // ============================================================
+    function switchTab(tab) {
+      var isForm = (tab === 'form');
+      document.getElementById('form-view').style.display    = isForm ? '' : 'none';
+      document.getElementById('history-view').style.display = isForm ? 'none' : '';
+      document.getElementById('footer').style.display       = isForm ? '' : 'none';
+      document.getElementById('tab-form-btn').className = 'tab-btn' + (isForm  ? ' active' : '');
+      document.getElementById('tab-hist-btn').className = 'tab-btn' + (!isForm ? ' active' : '');
+      if (!isForm) renderHistory();
+    }
+
+    // ============================================================
+    //  トースト
+    // ============================================================
+    var toastTimer = null;
+    function showToast(msg) {
+      var el = document.getElementById('toast');
+      el.textContent = msg;
+      el.style.display = 'block';
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function() { el.style.display = 'none'; }, 2200);
+    }
+
+    function todayStr() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    // ============================================================
+    //  IndexedDB ヘルパー
+    // ============================================================
+    var DB_NAME = 'patrol-db';
+    var DB_VER  = 1;
+
+    function openDB(cb) {
+      if (db) { cb(null, db); return; }
+      var req = indexedDB.open(DB_NAME, DB_VER);
+      req.onupgradeneeded = function(e) {
+        var d = e.target.result;
+        if (!d.objectStoreNames.contains('records')) {
+          d.createObjectStore('records', { keyPath: 'id' });
+        }
+        if (!d.objectStoreNames.contains('draft')) {
+          d.createObjectStore('draft', { keyPath: 'key' });
+        }
+      };
+      req.onsuccess = function(e) { db = e.target.result; cb(null, db); };
+      req.onerror   = function(e) { cb(e.target.error, null); };
+    }
+
+    function dbPut(store, obj, cb) {
+      openDB(function(err, d) {
+        if (err) { if (cb) cb(err); return; }
+        var req = d.transaction(store, 'readwrite').objectStore(store).put(obj);
+        req.onsuccess = function()    { if (cb) cb(null); };
+        req.onerror   = function(e)   { if (cb) cb(e.target.error); };
+      });
+    }
+
+    function dbGetAll(store, cb) {
+      openDB(function(err, d) {
+        if (err) { cb(err, []); return; }
+        var req = d.transaction(store, 'readonly').objectStore(store).getAll();
+        req.onsuccess = function(e) { cb(null, e.target.result || []); };
+        req.onerror   = function(e) { cb(e.target.error, []); };
+      });
+    }
+
+    function dbGet(store, key, cb) {
+      openDB(function(err, d) {
+        if (err) { cb(err, null); return; }
+        var req = d.transaction(store, 'readonly').objectStore(store).get(key);
+        req.onsuccess = function(e) { cb(null, e.target.result || null); };
+        req.onerror   = function(e) { cb(e.target.error, null); };
+      });
+    }
+
+    function dbDelete(store, key, cb) {
+      openDB(function(err, d) {
+        if (err) { if (cb) cb(err); return; }
+        var req = d.transaction(store, 'readwrite').objectStore(store).delete(key);
+        req.onsuccess = function()  { if (cb) cb(null); };
+        req.onerror   = function(e) { if (cb) cb(e.target.error); };
+      });
+    }
+
+    // ============================================================
+    //  フォームデータ収集・復元
+    // ============================================================
+    function collectFormData() {
+      var checksSnap = {};
+      var k;
+      for (k in checks) { checksSnap[k] = checks[k]; }
+      return {
+        id:           Date.now(),
+        date:         document.getElementById('f-date').value         || '',
+        inspector:    document.getElementById('f-inspector').value    || '',
+        projectName:  document.getElementById('f-project').value      || '',
+        contractor:   document.getElementById('f-contractor').value   || '',
+        checks:       checksSnap,
+        notes1:       document.getElementById('f-notes1').value       || '',
+        notes2:       document.getElementById('f-notes2').value       || '',
+        notes3:       document.getElementById('f-notes3').value       || '',
+        progressRate: parseInt(document.getElementById('f-rate').value, 10) || 0,
+        photos:       photos.slice(),
+        savedAt:      new Date().toISOString()
+      };
+    }
+
+    function restoreFormData(r) {
+      checks = {};
+      var k;
+      for (k in (r.checks || {})) { checks[k] = r.checks[k]; }
+      photos = (r.photos || []).slice();
+      document.getElementById('f-date').value       = r.date || todayStr();
+      document.getElementById('f-inspector').value  = r.inspector || '';
+      document.getElementById('f-project').value    = r.projectName || '';
+      document.getElementById('f-contractor').value = r.contractor || '';
+      document.getElementById('f-notes1').value     = r.notes1 || r.notes || '';
+      document.getElementById('f-notes2').value     = r.notes2 || '';
+      document.getElementById('f-notes3').value     = r.notes3 || '';
+      setRate(r.progressRate || 0);
+      var i;
+      for (i = 1; i <= TOTAL; i++) refreshItem(i);
+      refreshProgress();
+      refreshPhotos();
+      onField();
+    }
+
+    // ============================================================
+    //  自動保存（下書き）
+    // ============================================================
+    function markDirty() {
+      isDirty = true;
+      if (draftTimer) clearTimeout(draftTimer);
+      draftTimer = setTimeout(autoSaveDraft, 30000);
+    }
+
+    function autoSaveDraft() {
+      if (!isDirty) return;
+      var draft = collectFormData();
+      draft.key = 'current';
+      dbPut('draft', draft, function(err) {
+        if (!err) {
+          isDirty = false;
+          var t = new Date();
+          var hhmm = ('0'+t.getHours()).slice(-2) + ':' + ('0'+t.getMinutes()).slice(-2);
+          var el = document.getElementById('draft-indicator');
+          if (el) el.textContent = '下書き保存済 ' + hhmm;
+        }
+      });
+    }
+
+    function clearDraft() {
+      isDirty = false;
+      if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+      var el = document.getElementById('draft-indicator');
+      if (el) el.textContent = '';
+      dbDelete('draft', 'current', null);
+    }
+
+    function loadDraftIfExists() {
+      dbGet('draft', 'current', function(err, draft) {
+        if (!err && draft && draft.savedAt) {
+          var d = new Date(draft.savedAt);
+          var label = (d.getMonth()+1) + '/' + d.getDate() + ' ' +
+                      ('0'+d.getHours()).slice(-2) + ':' + ('0'+d.getMinutes()).slice(-2);
+          if (confirm('前回の未保存データがあります（' + label + '）\n復元しますか？')) {
+            restoreFormData(draft);
+            var el = document.getElementById('draft-indicator');
+            if (el) el.textContent = '下書き復元済';
+            showToast('下書きを復元しました');
+          } else {
+            clearDraft();
+          }
+        }
+      });
+    }
+
+    // ============================================================
+    //  オンライン状態
+    // ============================================================
+    function updateOnlineStatus() {
+      var online = navigator.onLine;
+      var el = document.getElementById('net-status');
+      if (el) {
+        el.textContent = online ? '🟢 オンライン' : '🔴 オフライン';
+        el.className   = 'net-status ' + (online ? 'net-online' : 'net-offline');
+      }
+      refreshSyncStatus();
+    }
+
+    function refreshSyncStatus() {
+      var unsynced = records.filter(function(r) { return !r.synced; });
+      var count    = unsynced.length;
+      var label    = document.getElementById('unsynced-label');
+      var countEl  = document.getElementById('unsynced-count');
+      var btn      = document.getElementById('sync-now-btn');
+      if (!label || !btn) return;
+      if (count > 0) {
+        label.style.display = '';
+        if (countEl) countEl.textContent = count;
+        btn.style.display   = '';
+        btn.disabled        = !navigator.onLine;
+      } else {
+        label.style.display = 'none';
+        btn.style.display   = 'none';
+      }
+    }
+
+    // ============================================================
+    //  同期処理
+    // ============================================================
+    function syncRecord(record, cb) {
+      fetch('/api/records', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(record)
+      })
+      .then(function(r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function() { cb(true); })
+      .catch(function() { cb(false); });
+    }
+
+    function syncAll() {
+      if (!navigator.onLine) {
+        showToast('オフラインです。WiFi接続後に同期してください');
+        return;
+      }
+      var unsynced = records.filter(function(r) { return !r.synced; });
+      if (!unsynced.length) { showToast('同期済みです ✓'); return; }
+
+      var btn   = document.getElementById('sync-now-btn');
+      var done  = 0;
+      var failed = 0;
+      var total = unsynced.length;
+      btn.disabled    = true;
+      btn.textContent = '同期中 0/' + total;
+
+      function next(idx) {
+        if (idx >= total) {
+          btn.disabled    = false;
+          btn.textContent = '☁ 今すぐ同期';
+          var msg = done + '件同期しました ✓';
+          if (failed) { msg += '（' + failed + '件失敗）'; }
+          showToast(msg);
+          refreshSyncStatus();
+          renderHistory();
+          return;
+        }
+        var r = unsynced[idx];
+        syncRecord(r, function(ok) {
+          if (ok) {
+            r.synced = true;
+            dbPut('records', r, null);
+            for (var i = 0; i < records.length; i++) {
+              if (records[i].id === r.id) { records[i].synced = true; break; }
+            }
+            done++;
+          } else {
+            failed++;
+          }
+          btn.textContent = '同期中 ' + (done + failed) + '/' + total;
+          next(idx + 1);
+        });
+      }
+      next(0);
+    }
+
+    // サーバーのレコードとローカルをマージ
+    function fetchAndMerge() {
+      fetch('/api/records')
+        .then(function(r) { if (!r.ok) throw new Error(); return r.json(); })
+        .then(function(srvRecs) {
+          if (!Array.isArray(srvRecs)) return;
+          var localMap = {};
+          records.forEach(function(r) { localMap[r.id] = r; });
+
+          var toAdd = [];
+          srvRecs.forEach(function(sr) {
+            if (localMap[sr.id]) {
+              // ローカルにある → 同期済みとしてマーク
+              if (!localMap[sr.id].synced) {
+                localMap[sr.id].synced = true;
+                dbPut('records', localMap[sr.id], null);
+              }
+            } else {
+              // ローカルにない → 追加
+              sr.synced = true;
+              localMap[sr.id] = sr;
+              toAdd.push(sr);
+            }
+          });
+
+          var idx = 0;
+          function addNext() {
+            if (idx >= toAdd.length) {
+              if (toAdd.length) {
+                records = Object.keys(localMap).map(function(k) { return localMap[k]; })
+                  .sort(function(a, b) { return b.id - a.id; });
+                refreshRecCount();
+              }
+              refreshSyncStatus();
+              return;
+            }
+            dbPut('records', toAdd[idx], function() { idx++; addNext(); });
+          }
+          addNext();
+        })
+        .catch(function() { refreshSyncStatus(); });
+    }
+
+    // ============================================================
+    //  ユーザー設定
+    // ============================================================
+    var userSettings = { name: '', dept: '' };
+
+    function loadUserSettings() {
+      try {
+        var s = localStorage.getItem('patrolUserSettings');
+        if (s) { userSettings = JSON.parse(s); }
+      } catch(e) {}
+    }
+
+    function applyUserSettings() {
+      var btn = document.getElementById('user-btn');
+      if (userSettings.name) {
+        btn.textContent = '👤 ' + userSettings.name;
+        // 点検者フィールドが空なら自動入力
+        var fi = document.getElementById('f-inspector');
+        if (!fi.value) { fi.value = userSettings.name; onField(); }
+      } else {
+        btn.textContent = '⚙ 設定';
+      }
+    }
+
+    function openSettings() {
+      document.getElementById('s-username').value = userSettings.name || '';
+      document.getElementById('s-dept').value     = userSettings.dept || '';
+      document.getElementById('settings-modal').style.display = 'flex';
+      setTimeout(function() { document.getElementById('s-username').focus(); }, 50);
+    }
+
+    function closeSettings() {
+      document.getElementById('settings-modal').style.display = 'none';
+    }
+
+    function saveSettingsAction() {
+      userSettings.name = document.getElementById('s-username').value.trim();
+      userSettings.dept = document.getElementById('s-dept').value.trim();
+      try { localStorage.setItem('patrolUserSettings', JSON.stringify(userSettings)); } catch(e) {}
+      // 点検者フィールドに反映
+      if (userSettings.name) {
+        document.getElementById('f-inspector').value = userSettings.name;
+        onField();
+      }
+      applyUserSettings();
+      closeSettings();
+      showToast('設定を保存しました ✓');
+    }
+
+    // ============================================================
+    //  履歴フィルター
+    // ============================================================
+    var histFilter = { text: '', inspector: '' };
+
+    function filteredRecords() {
+      var txt = histFilter.text.toLowerCase();
+      var ins = histFilter.inspector;
+      return records.filter(function(r) {
+        if (txt) {
+          var hit = (r.projectName || '').toLowerCase().indexOf(txt) >= 0
+                 || (r.inspector   || '').toLowerCase().indexOf(txt) >= 0
+                 || (r.date        || '').indexOf(txt) >= 0;
+          if (!hit) return false;
+        }
+        if (ins && (r.inspector || '') !== ins) return false;
+        return true;
+      });
+    }
+
+    function updateInspectorSelect() {
+      var sel = document.getElementById('hist-inspector-sel');
+      if (!sel) return;
+      var current = histFilter.inspector;
+      var names = [];
+      records.forEach(function(r) {
+        if (r.inspector && names.indexOf(r.inspector) < 0) names.push(r.inspector);
+      });
+      names.sort();
+      while (sel.firstChild) sel.removeChild(sel.firstChild);
+      var allOpt = document.createElement('option');
+      allOpt.value = '';
+      allOpt.textContent = '👤 全員';
+      sel.appendChild(allOpt);
+      names.forEach(function(name) {
+        var opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        if (name === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    // ============================================================
+    //  イベントリスナー登録
+    // ============================================================
+    function bindEvents() {
+      document.getElementById('tab-form-btn').addEventListener('click', function() { switchTab('form'); });
+      document.getElementById('tab-hist-btn').addEventListener('click', function() { switchTab('history'); });
+      document.getElementById('btn-new').addEventListener('click', doNewForm);
+      document.getElementById('save-btn').addEventListener('click', doSave);
+
+      document.getElementById('f-date').addEventListener('input', function() { onField(); markDirty(); });
+      document.getElementById('f-inspector').addEventListener('input', function() { onField(); markDirty(); });
+      document.getElementById('f-project').addEventListener('input', function() { onField(); markDirty(); });
+      document.getElementById('f-contractor').addEventListener('input', markDirty);
+      document.getElementById('f-notes1').addEventListener('input', markDirty);
+      document.getElementById('f-notes2').addEventListener('input', markDirty);
+      document.getElementById('f-notes3').addEventListener('input', markDirty);
+
+      document.getElementById('cam-input').addEventListener('change', function() { onPhoto(this); });
+      document.getElementById('lib-input').addEventListener('change', function() { onPhoto(this); });
+      document.getElementById('f-rate').addEventListener('input', function() { setRate(this.value); });
+      document.getElementById('f-rate-num').addEventListener('input', function() { setRate(this.value); });
+      document.getElementById('f-rate').addEventListener('input', markDirty);
+      document.getElementById('export-btn').addEventListener('click', exportExcel);
+      document.getElementById('pdf-btn').addEventListener('click', exportPDF);
+
+      // 同期ボタン
+      document.getElementById('sync-now-btn').addEventListener('click', syncAll);
+
+      // オンライン・オフライン検知
+      window.addEventListener('online',  function() { updateOnlineStatus(); showToast('🟢 オンライン接続しました'); });
+      window.addEventListener('offline', function() { updateOnlineStatus(); showToast('🔴 オフラインになりました'); });
+
+      // ユーザー設定
+      document.getElementById('user-btn').addEventListener('click', openSettings);
+      document.getElementById('s-cancel').addEventListener('click', closeSettings);
+      document.getElementById('s-save').addEventListener('click', saveSettingsAction);
+      document.getElementById('settings-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeSettings();
+      });
+
+      // 履歴フィルター
+      document.getElementById('hist-search').addEventListener('input', function() {
+        histFilter.text = this.value;
+        renderHistory();
+      });
+      document.getElementById('hist-inspector-sel').addEventListener('change', function() {
+        histFilter.inspector = this.value;
+        renderHistory();
+      });
+    }
+
+    // ============================================================
+    //  初期化
+    // ============================================================
+    function init() {
+      loadUserSettings();
+      document.getElementById('f-date').value = todayStr();
+      buildChecklist();
+      bindEvents();
+      applyUserSettings();
+      updateOnlineStatus();
+
+      // IndexedDB からローカル記録を読み込み
+      openDB(function(err) {
+        if (err) {
+          // IndexedDB 使えない場合 → サーバーから直接取得
+          fetch('/api/records')
+            .then(function(r) { if (!r.ok) throw new Error(); return r.json(); })
+            .then(function(data) { records = Array.isArray(data) ? data : []; refreshRecCount(); refreshSyncStatus(); })
+            .catch(function() { refreshRecCount(); refreshSyncStatus(); });
+          return;
+        }
+
+        // ① 下書き確認
+        loadDraftIfExists();
+
+        // ② ローカル記録を読み込み
+        dbGetAll('records', function(err2, localRecs) {
+          records = err2 ? [] : localRecs.sort(function(a, b) { return b.id - a.id; });
+          refreshRecCount();
+          refreshSyncStatus();
+
+          // ③ オンラインならサーバーとマージ
+          if (navigator.onLine) { fetchAndMerge(); }
+        });
+      });
+    }
+
+    init();
+  </script>
+
+  <!-- ============================================================
+       Service Worker 登録
+  ============================================================ -->
+  <script>
+    // ============================================================
+    // Service Worker 登録 (iPad Safari PWA 対応)
+    // ============================================================
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./sw.js')
+          .then(function(reg) {
+            console.log('[PWA] SW 登録完了 scope:', reg.scope);
+
+            // ── 待機中の新 SW に SKIP_WAITING を送信 ─────────
+            //    iPad で古い SW が残っている場合に強制更新する
+            function sendSkipWaiting(worker) {
+              if (!worker) return;
+              worker.addEventListener('statechange', function() {
+                if (worker.state === 'installed') {
+                  console.log('[PWA] 新 SW installed → SKIP_WAITING 送信');
+                  worker.postMessage({ type: 'SKIP_WAITING' });
+                }
+              });
+              // すでに installed 状態の場合も即送信
+              if (worker.state === 'installed') {
+                console.log('[PWA] 待機中 SW 発見 → SKIP_WAITING 即送信');
+                worker.postMessage({ type: 'SKIP_WAITING' });
+              }
+            }
+
+            // 今すでに waiting がいれば即送信
+            if (reg.waiting) sendSkipWaiting(reg.waiting);
+
+            // 新 SW が見つかったら送信
+            reg.addEventListener('updatefound', function() {
+              console.log('[PWA] SW updatefound');
+              sendSkipWaiting(reg.installing);
+            });
+
+            // SW が切り替わったらオンライン時のみリロード
+            // （オフライン時のリロードは白画面になるため行わない）
+            navigator.serviceWorker.addEventListener('controllerchange', function() {
+              if (navigator.onLine) {
+                console.log('[PWA] controllerchange → オンラインのためリロード');
+                window.location.reload();
+              } else {
+                console.log('[PWA] controllerchange → オフラインのためリロードスキップ');
+              }
+            });
+          })
+          .catch(function(e) { console.warn('[PWA] SW 登録失敗:', e); });
+      });
+    }
+
+    // iOS インストール案内（Safari + 未インストール時のみ）
+    (function() {
+      var isIOS        = /iPad|iPhone|iPod/.test(navigator.userAgent)
+                       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                       || window.navigator.standalone;
+      var isSafari     = /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS|Chrome/.test(navigator.userAgent);
+      var dismissed    = localStorage.getItem('iosHintDismissed');
+
+      if (isIOS && isSafari && !isStandalone && !dismissed) {
+        var hint = document.getElementById('ios-hint');
+        if (hint) hint.style.display = 'flex';
+      }
+
+      var closeBtn = document.getElementById('ios-hint-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+          var hint = document.getElementById('ios-hint');
+          if (hint) hint.style.display = 'none';
+          localStorage.setItem('iosHintDismissed', '1');
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
