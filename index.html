@@ -146,6 +146,24 @@
     .photo-name::placeholder { color: #9ca3af; }
     .photo-count { font-size: 12px; color: #9ca3af; text-align: center; margin-top: 8px; }
 
+    /* ---- autocomplete ---- */
+    .ac-wrap { position: relative; }
+    .ac-list {
+      position: absolute; top: calc(100% - 2px); left: 0; right: 0; z-index: 400;
+      background: white;
+      border: 2px solid #3b82f6; border-top: none;
+      border-radius: 0 0 8px 8px;
+      max-height: 220px; overflow-y: auto;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.18);
+    }
+    .ac-item {
+      padding: 13px 14px; font-size: 15px; color: #1a202c;
+      cursor: pointer; border-bottom: 1px solid #f3f4f6;
+      touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item:active { background: #eff6ff; color: #1e40af; }
+
     .footer {
       position: fixed; bottom: 0; left: 0; right: 0;
       padding: 12px 14px; background: white;
@@ -438,13 +456,35 @@
         <div class="field-row full">
           <div class="field">
             <label>工事名称</label>
-            <input type="text" id="f-project" placeholder="工事名を入力">
+            <div class="ac-wrap">
+              <input type="text" id="f-project" placeholder="工事名を入力" autocomplete="off">
+              <div class="ac-list" id="ac-project" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>工期（開始）</label>
+            <input type="date" id="f-term-start">
+          </div>
+          <div class="field">
+            <label>工期（終了）</label>
+            <input type="date" id="f-term-end">
           </div>
         </div>
         <div class="field-row full">
           <div class="field">
             <label>受注者</label>
-            <input type="text" id="f-contractor" placeholder="会社名を入力">
+            <input type="text" id="f-contractor" placeholder="会社名を入力" autocomplete="off">
+          </div>
+        </div>
+        <div class="field-row full">
+          <div class="field">
+            <label>協力業者</label>
+            <div class="ac-wrap">
+              <input type="text" id="f-subcontractor" placeholder="協力業者名を入力（任意）" autocomplete="off">
+              <div class="ac-list" id="ac-subcontractor" style="display:none"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -597,29 +637,29 @@
     // ============================================================
     //  Excel エクスポート（共通処理）
     // ============================================================
-    function buildWorkbook(date, project, inspector, checksData, rate, n1, n2, n3, photosData) {
+    function buildWorkbook(date, project, termStart, termEnd, inspector, contractor, subcontractor, checksData, rate, n1, n2, n3, photosData) {
       var wb = XLSX.utils.book_new();
 
       /* -------- Sheet1: パトロール結果 -------- */
-      var s1 = [['日付','現場名','点検者','カテゴリ','チェック項目','判定']];
+      var s1 = [['日付','現場名','工期（開始）','工期（終了）','受注者','協力業者','点検者','カテゴリ','チェック項目','判定']];
       CATS.forEach(function(cat) {
         cat.items.forEach(function(item) {
           s1.push([
-            date, project, inspector,
+            date, project, termStart, termEnd, contractor, subcontractor, inspector,
             cat.name, item.text,
             checksData[item.id] || '未確認'
           ]);
         });
       });
       var ws1 = XLSX.utils.aoa_to_sheet(s1);
-      ws1['!cols'] = [{wch:12},{wch:24},{wch:10},{wch:22},{wch:54},{wch:8}];
+      ws1['!cols'] = [{wch:12},{wch:24},{wch:12},{wch:12},{wch:20},{wch:20},{wch:10},{wch:22},{wch:54},{wch:8}];
       XLSX.utils.book_append_sheet(wb, ws1, 'パトロール結果');
 
       /* -------- Sheet2: 工事進捗 -------- */
-      var s2 = [['日付','現場名','工事進捗率（%）']];
-      s2.push([date, project, rate]);
+      var s2 = [['日付','現場名','工期（開始）','工期（終了）','工事進捗率（%）']];
+      s2.push([date, project, termStart, termEnd, rate]);
       var ws2 = XLSX.utils.aoa_to_sheet(s2);
-      ws2['!cols'] = [{wch:12},{wch:24},{wch:18}];
+      ws2['!cols'] = [{wch:12},{wch:24},{wch:12},{wch:12},{wch:18}];
       XLSX.utils.book_append_sheet(wb, ws2, '工事進捗');
 
       /* -------- Sheet3: 特記事項 -------- */
@@ -653,15 +693,19 @@
         alert('Excel出力ライブラリの読み込みに失敗しました。\nインターネット接続を確認してください。');
         return;
       }
-      var date      = document.getElementById('f-date').value        || '';
-      var project   = document.getElementById('f-project').value     || '現場名未入力';
-      var inspector = document.getElementById('f-inspector').value   || '';
-      var rate      = parseInt(document.getElementById('f-rate').value, 10) || 0;
-      var n1        = document.getElementById('f-notes1').value || '';
-      var n2        = document.getElementById('f-notes2').value || '';
-      var n3        = document.getElementById('f-notes3').value || '';
+      var date          = document.getElementById('f-date').value           || '';
+      var project       = document.getElementById('f-project').value       || '現場名未入力';
+      var termStart     = document.getElementById('f-term-start').value    || '';
+      var termEnd       = document.getElementById('f-term-end').value      || '';
+      var inspector     = document.getElementById('f-inspector').value     || '';
+      var contractor    = document.getElementById('f-contractor').value    || '';
+      var subcontractor = document.getElementById('f-subcontractor').value || '';
+      var rate          = parseInt(document.getElementById('f-rate').value, 10) || 0;
+      var n1            = document.getElementById('f-notes1').value || '';
+      var n2            = document.getElementById('f-notes2').value || '';
+      var n3            = document.getElementById('f-notes3').value || '';
 
-      var wb    = buildWorkbook(date, project, inspector, checks, rate, n1, n2, n3, photos);
+      var wb    = buildWorkbook(date, project, termStart, termEnd, inspector, contractor, subcontractor, checks, rate, n1, n2, n3, photos);
       var fname = '安全パトロール_' + project + '_' + (date || 'nodate') + '.xlsx';
       XLSX.writeFile(wb, fname);
     }
@@ -672,15 +716,19 @@
         alert('Excel出力ライブラリの読み込みに失敗しました。\nインターネット接続を確認してください。');
         return;
       }
-      var date      = r.date        || '';
-      var project   = r.projectName || '現場名未入力';
-      var inspector = r.inspector   || '';
-      var rate      = r.progressRate || 0;
-      var n1        = r.notes1 || r.notes || '';
-      var n2        = r.notes2 || '';
-      var n3        = r.notes3 || '';
+      var date          = r.date          || '';
+      var project       = r.projectName  || '現場名未入力';
+      var termStart     = r.termStart    || '';
+      var termEnd       = r.termEnd      || '';
+      var inspector     = r.inspector    || '';
+      var contractor    = r.contractor   || '';
+      var subcontractor = r.subcontractor || '';
+      var rate          = r.progressRate || 0;
+      var n1            = r.notes1 || r.notes || '';
+      var n2            = r.notes2 || '';
+      var n3            = r.notes3 || '';
 
-      var wb    = buildWorkbook(date, project, inspector, r.checks || {}, rate, n1, n2, n3, r.photos || []);
+      var wb    = buildWorkbook(date, project, termStart, termEnd, inspector, contractor, subcontractor, r.checks || {}, rate, n1, n2, n3, r.photos || []);
       var fname = '安全パトロール_' + project + '_' + (date || 'nodate') + '.xlsx';
       XLSX.writeFile(wb, fname);
     }
@@ -698,11 +746,14 @@
       }
       function nl2br(s) { return esc(s).replace(/\n/g,'<br>'); }
 
-      var date       = data.date        || '―';
-      var inspector  = data.inspector   || '―';
-      var project    = data.projectName || '―';
-      var contractor = data.contractor  || '';
-      var rate       = data.progressRate || 0;
+      var date          = data.date          || '―';
+      var inspector     = data.inspector    || '―';
+      var project       = data.projectName  || '―';
+      var termStart     = data.termStart    || '';
+      var termEnd       = data.termEnd      || '';
+      var contractor    = data.contractor   || '';
+      var subcontractor = data.subcontractor || '';
+      var rate          = data.progressRate || 0;
 
       // ---- 各ページ共通ミニヘッダー ----
       function miniHd() {
@@ -731,6 +782,10 @@
         });
       });
 
+      var termStr = termStart && termEnd ? (termStart + ' 〜 ' + termEnd)
+                  : termStart ? (termStart + ' 〜 ')
+                  : termEnd   ? ('〜 ' + termEnd)
+                  : '';
       var page1 = '<div class="page">'
         + (contractor ? '<div class="co">' + esc(contractor) + '</div>' : '')
         + '<div class="rpt-title">安全パトロール報告書</div>'
@@ -738,6 +793,8 @@
         + '<div class="mi"><span class="ml">点 検 日</span><span class="mv">' + esc(date) + '</span></div>'
         + '<div class="mi"><span class="ml">パトロール者</span><span class="mv">' + esc(inspector) + '</span></div>'
         + '<div class="mi full"><span class="ml">工事名称</span><span class="mv">' + esc(project) + '</span></div>'
+        + (termStr ? '<div class="mi full"><span class="ml">工　　期</span><span class="mv">' + esc(termStr) + '</span></div>' : '')
+        + (subcontractor ? '<div class="mi full"><span class="ml">協力業者</span><span class="mv">' + esc(subcontractor) + '</span></div>' : '')
         + '</div>'
         + '<div class="stitle">✅ 安全チェック一覧</div>'
         + '<table><thead><tr>'
@@ -886,16 +943,19 @@
     // フォームの現在内容をPDF出力
     function exportPDF() {
       var data = {
-        date:         document.getElementById('f-date').value        || '',
-        inspector:    document.getElementById('f-inspector').value   || '',
-        projectName:  document.getElementById('f-project').value     || '',
-        contractor:   document.getElementById('f-contractor').value  || '',
-        checks:       checks,
-        progressRate: parseInt(document.getElementById('f-rate').value, 10) || 0,
-        notes1:       document.getElementById('f-notes1').value || '',
-        notes2:       document.getElementById('f-notes2').value || '',
-        notes3:       document.getElementById('f-notes3').value || '',
-        photos:       photos.slice()
+        date:          document.getElementById('f-date').value           || '',
+        inspector:     document.getElementById('f-inspector').value      || '',
+        projectName:   document.getElementById('f-project').value        || '',
+        termStart:     document.getElementById('f-term-start').value     || '',
+        termEnd:       document.getElementById('f-term-end').value       || '',
+        contractor:    document.getElementById('f-contractor').value     || '',
+        subcontractor: document.getElementById('f-subcontractor').value  || '',
+        checks:        checks,
+        progressRate:  parseInt(document.getElementById('f-rate').value, 10) || 0,
+        notes1:        document.getElementById('f-notes1').value || '',
+        notes2:        document.getElementById('f-notes2').value || '',
+        notes3:        document.getElementById('f-notes3').value || '',
+        photos:        photos.slice()
       };
       var win = window.open('', '_blank');
       if (!win) {
@@ -1200,6 +1260,10 @@
         refreshRecCount();
         clearDraft();
 
+        // 入力履歴を更新（autocomplete 候補に追加）
+        if (record.projectName)   addToSuggestions('projects',       record.projectName);
+        if (record.subcontractor) addToSuggestions('subcontractors', record.subcontractor);
+
         btn.textContent = '✓ 保存しました！';
         btn.classList.add('saved');
         btn.disabled = false;
@@ -1243,13 +1307,16 @@
       checks = {};
       photos = [];
       clearDraft();
-      document.getElementById('f-date').value       = todayStr();
-      document.getElementById('f-inspector').value  = '';
-      document.getElementById('f-project').value    = '';
-      document.getElementById('f-contractor').value = '';
-      document.getElementById('f-notes1').value     = '';
-      document.getElementById('f-notes2').value     = '';
-      document.getElementById('f-notes3').value     = '';
+      document.getElementById('f-date').value          = todayStr();
+      document.getElementById('f-inspector').value     = '';
+      document.getElementById('f-project').value       = '';
+      document.getElementById('f-term-start').value    = '';
+      document.getElementById('f-term-end').value      = '';
+      document.getElementById('f-contractor').value    = '';
+      document.getElementById('f-subcontractor').value = '';
+      document.getElementById('f-notes1').value        = '';
+      document.getElementById('f-notes2').value        = '';
+      document.getElementById('f-notes3').value        = '';
       setRate(0);
       var i;
       for (i = 1; i <= TOTAL; i++) refreshItem(i);
@@ -1275,13 +1342,16 @@
       // 旧形式（文字列配列）も正規化してオブジェクトに統一
       photos = (r.photos || []).map(normalizePhoto);
 
-      document.getElementById('f-date').value       = r.date || todayStr();
-      document.getElementById('f-inspector').value  = r.inspector || '';
-      document.getElementById('f-project').value    = r.projectName || '';
-      document.getElementById('f-contractor').value = r.contractor || '';
-      document.getElementById('f-notes1').value = r.notes1 || r.notes || '';
-      document.getElementById('f-notes2').value = r.notes2 || '';
-      document.getElementById('f-notes3').value = r.notes3 || '';
+      document.getElementById('f-date').value          = r.date          || todayStr();
+      document.getElementById('f-inspector').value     = r.inspector     || '';
+      document.getElementById('f-project').value       = r.projectName   || '';
+      document.getElementById('f-term-start').value    = r.termStart     || '';
+      document.getElementById('f-term-end').value      = r.termEnd       || '';
+      document.getElementById('f-contractor').value    = r.contractor    || '';
+      document.getElementById('f-subcontractor').value = r.subcontractor || '';
+      document.getElementById('f-notes1').value        = r.notes1 || r.notes || '';
+      document.getElementById('f-notes2').value        = r.notes2 || '';
+      document.getElementById('f-notes3').value        = r.notes3 || '';
       setRate(r.progressRate || 0);
       for (i = 1; i <= TOTAL; i++) refreshItem(i);
       refreshProgress();
@@ -1382,11 +1452,15 @@
 
         var sub = document.createElement('div');
         sub.className = 'history-sub';
+        var termDisp = r.termStart || r.termEnd
+          ? '工期：' + (r.termStart || '') + (r.termStart && r.termEnd ? '〜' : '') + (r.termEnd || '') + '　'
+          : '';
+        var subcon = r.subcontractor ? '協力：' + r.subcontractor + '　' : '';
         sub.textContent = (r.projectName || '（工事名未入力）');
         var br = document.createElement('br');
         sub.appendChild(br);
         sub.appendChild(document.createTextNode(
-          '点検者：' + (r.inspector || '不明') + '　' + total + '/' + TOTAL + '項目　写真' + (r.photos || []).length + '枚'
+          termDisp + subcon + '点検者：' + (r.inspector || '不明') + '　' + total + '/' + TOTAL + '項目　写真' + (r.photos || []).length + '枚'
         ));
         info.appendChild(sub);
 
@@ -1465,7 +1539,7 @@
     //  IndexedDB ヘルパー
     // ============================================================
     var DB_NAME = 'patrol-db';
-    var DB_VER  = 1;
+    var DB_VER  = 2;   // v2: suggestions ストア追加
 
     function openDB(cb) {
       if (db) { cb(null, db); return; }
@@ -1477,6 +1551,9 @@
         }
         if (!d.objectStoreNames.contains('draft')) {
           d.createObjectStore('draft', { keyPath: 'key' });
+        }
+        if (!d.objectStoreNames.contains('suggestions')) {
+          d.createObjectStore('suggestions', { keyPath: 'key' });
         }
       };
       req.onsuccess = function(e) { db = e.target.result; cb(null, db); };
@@ -1527,18 +1604,21 @@
       var k;
       for (k in checks) { checksSnap[k] = checks[k]; }
       return {
-        id:           Date.now(),
-        date:         document.getElementById('f-date').value         || '',
-        inspector:    document.getElementById('f-inspector').value    || '',
-        projectName:  document.getElementById('f-project').value      || '',
-        contractor:   document.getElementById('f-contractor').value   || '',
-        checks:       checksSnap,
-        notes1:       document.getElementById('f-notes1').value       || '',
-        notes2:       document.getElementById('f-notes2').value       || '',
-        notes3:       document.getElementById('f-notes3').value       || '',
-        progressRate: parseInt(document.getElementById('f-rate').value, 10) || 0,
-        photos:       photos.slice(),
-        savedAt:      new Date().toISOString()
+        id:             Date.now(),
+        date:           document.getElementById('f-date').value           || '',
+        inspector:      document.getElementById('f-inspector').value      || '',
+        projectName:    document.getElementById('f-project').value        || '',
+        termStart:      document.getElementById('f-term-start').value     || '',
+        termEnd:        document.getElementById('f-term-end').value       || '',
+        contractor:     document.getElementById('f-contractor').value     || '',
+        subcontractor:  document.getElementById('f-subcontractor').value  || '',
+        checks:         checksSnap,
+        notes1:         document.getElementById('f-notes1').value         || '',
+        notes2:         document.getElementById('f-notes2').value         || '',
+        notes3:         document.getElementById('f-notes3').value         || '',
+        progressRate:   parseInt(document.getElementById('f-rate').value, 10) || 0,
+        photos:         photos.slice(),
+        savedAt:        new Date().toISOString()
       };
     }
 
@@ -1548,13 +1628,16 @@
       for (k in (r.checks || {})) { checks[k] = r.checks[k]; }
       // 旧形式（文字列配列）も正規化してオブジェクトに統一
       photos = (r.photos || []).map(normalizePhoto);
-      document.getElementById('f-date').value       = r.date || todayStr();
-      document.getElementById('f-inspector').value  = r.inspector || '';
-      document.getElementById('f-project').value    = r.projectName || '';
-      document.getElementById('f-contractor').value = r.contractor || '';
-      document.getElementById('f-notes1').value     = r.notes1 || r.notes || '';
-      document.getElementById('f-notes2').value     = r.notes2 || '';
-      document.getElementById('f-notes3').value     = r.notes3 || '';
+      document.getElementById('f-date').value          = r.date          || todayStr();
+      document.getElementById('f-inspector').value     = r.inspector     || '';
+      document.getElementById('f-project').value       = r.projectName   || '';
+      document.getElementById('f-term-start').value    = r.termStart     || '';
+      document.getElementById('f-term-end').value      = r.termEnd       || '';
+      document.getElementById('f-contractor').value    = r.contractor    || '';
+      document.getElementById('f-subcontractor').value = r.subcontractor || '';
+      document.getElementById('f-notes1').value        = r.notes1 || r.notes || '';
+      document.getElementById('f-notes2').value        = r.notes2 || '';
+      document.getElementById('f-notes3').value        = r.notes3 || '';
       setRate(r.progressRate || 0);
       var i;
       for (i = 1; i <= TOTAL; i++) refreshItem(i);
@@ -1593,6 +1676,78 @@
       var el = document.getElementById('draft-indicator');
       if (el) el.textContent = '';
       dbDelete('draft', 'current', null);
+    }
+
+    // ============================================================
+    //  入力履歴（autocomplete）
+    // ============================================================
+    function loadSuggestions(key, cb) {
+      dbGet('suggestions', key, function(err, row) {
+        cb(!err && row ? (row.items || []) : []);
+      });
+    }
+
+    function addToSuggestions(key, value) {
+      if (!value || !value.trim()) return;
+      var v = value.trim();
+      loadSuggestions(key, function(items) {
+        items = items.filter(function(i) { return i !== v; }); // 重複除去
+        items.unshift(v);                                       // 先頭に追加
+        if (items.length > 30) items = items.slice(0, 30);     // 最大30件
+        dbPut('suggestions', { key: key, items: items }, null);
+      });
+    }
+
+    // inputId: 入力欄ID  listId: ドロップダウンdivのID  sugKey: IDBのキー名
+    function setupAutocomplete(inputId, listId, sugKey) {
+      var input = document.getElementById(inputId);
+      var list  = document.getElementById(listId);
+      if (!input || !list) return;
+
+      var cache = [];      // メモリキャッシュ（focus のたびに更新）
+
+      function renderList(items) {
+        while (list.firstChild) list.removeChild(list.firstChild);
+        if (!items.length) { list.style.display = 'none'; return; }
+        items.forEach(function(item) {
+          var div = document.createElement('div');
+          div.className = 'ac-item';
+          div.textContent = item;
+          // mousedown / touchstart の両方で選択（blur より先に発火させる）
+          function pick(e) {
+            e.preventDefault();
+            input.value = item;
+            list.style.display = 'none';
+            markDirty();
+          }
+          div.addEventListener('mousedown', pick);
+          div.addEventListener('touchstart', pick, { passive: false });
+          list.appendChild(div);
+        });
+        list.style.display = '';
+      }
+
+      function filterAndShow() {
+        var q = input.value.trim().toLowerCase();
+        var filtered = q
+          ? cache.filter(function(s) { return s.toLowerCase().indexOf(q) !== -1; })
+          : cache;
+        renderList(filtered);
+      }
+
+      input.addEventListener('focus', function() {
+        loadSuggestions(sugKey, function(items) {
+          cache = items;
+          filterAndShow();
+        });
+      });
+
+      input.addEventListener('input', filterAndShow);
+
+      input.addEventListener('blur', function() {
+        // クリック/タップが先に発火するよう 200ms 遅延してから閉じる
+        setTimeout(function() { list.style.display = 'none'; }, 200);
+      });
     }
 
     function loadDraftIfExists() {
@@ -1860,10 +2015,17 @@
       document.getElementById('f-date').addEventListener('input', function() { onField(); markDirty(); });
       document.getElementById('f-inspector').addEventListener('input', function() { onField(); markDirty(); });
       document.getElementById('f-project').addEventListener('input', function() { onField(); markDirty(); });
+      document.getElementById('f-term-start').addEventListener('input', markDirty);
+      document.getElementById('f-term-end').addEventListener('input', markDirty);
       document.getElementById('f-contractor').addEventListener('input', markDirty);
+      document.getElementById('f-subcontractor').addEventListener('input', markDirty);
       document.getElementById('f-notes1').addEventListener('input', markDirty);
       document.getElementById('f-notes2').addEventListener('input', markDirty);
       document.getElementById('f-notes3').addEventListener('input', markDirty);
+
+      // autocomplete 初期化
+      setupAutocomplete('f-project',       'ac-project',       'projects');
+      setupAutocomplete('f-subcontractor', 'ac-subcontractor', 'subcontractors');
 
       document.getElementById('cam-input').addEventListener('change', function() { onPhoto(this); });
       document.getElementById('lib-input').addEventListener('change', function() { onPhoto(this); });
