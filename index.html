@@ -116,9 +116,15 @@
       touch-action: manipulation;
     }
     .photo-action-btn .icon { font-size: 22px; }
-    .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .photo-thumb { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #e5e7eb; }
-    .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    /* 写真カード（サムネ＋名前入力） */
+    .photo-card {
+      border-radius: 10px; overflow: hidden;
+      border: 1px solid #e5e7eb; background: #f9fafb;
+      display: flex; flex-direction: column;
+    }
+    .photo-thumb { position: relative; aspect-ratio: 1; background: #e5e7eb; flex-shrink: 0; }
+    .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .photo-del {
       position: absolute; top: 4px; right: 4px;
       width: 28px; height: 28px;
@@ -128,6 +134,16 @@
       display: flex; align-items: center; justify-content: center;
       font-family: inherit; touch-action: manipulation;
     }
+    /* 写真名入力欄 */
+    .photo-name {
+      width: 100%; border: none; border-top: 1px solid #e5e7eb;
+      padding: 6px 8px; font-size: 12px; color: #374151;
+      background: white; font-family: inherit;
+      border-radius: 0; outline: none;
+      -webkit-appearance: none;
+    }
+    .photo-name:focus { background: #eff6ff; border-top-color: #3b82f6; }
+    .photo-name::placeholder { color: #9ca3af; }
     .photo-count { font-size: 12px; color: #9ca3af; text-align: center; margin-top: 8px; }
 
     .footer {
@@ -581,7 +597,7 @@
     // ============================================================
     //  Excel エクスポート（共通処理）
     // ============================================================
-    function buildWorkbook(date, project, inspector, checksData, rate, n1, n2, n3) {
+    function buildWorkbook(date, project, inspector, checksData, rate, n1, n2, n3, photosData) {
       var wb = XLSX.utils.book_new();
 
       /* -------- Sheet1: パトロール結果 -------- */
@@ -613,6 +629,21 @@
       ws3['!cols'] = [{wch:12},{wch:24},{wch:40},{wch:40},{wch:40}];
       XLSX.utils.book_append_sheet(wb, ws3, '特記事項');
 
+      /* -------- Sheet4: 写真一覧 -------- */
+      var s4 = [['No.', '写真名', '撮影日時']];
+      var pList = photosData || [];
+      pList.forEach(function(p, i) {
+        var obj  = (typeof p === 'string') ? { name: '', takenAt: '' } : p;
+        var pName    = obj.name    || '';
+        var pTakenAt = obj.takenAt
+          ? obj.takenAt.replace('T', ' ').replace(/\.\d+Z$/, '')
+          : '';
+        s4.push([i + 1, pName, pTakenAt]);
+      });
+      var ws4 = XLSX.utils.aoa_to_sheet(s4);
+      ws4['!cols'] = [{wch:6}, {wch:40}, {wch:22}];
+      XLSX.utils.book_append_sheet(wb, ws4, '写真一覧');
+
       return wb;
     }
 
@@ -630,7 +661,7 @@
       var n2        = document.getElementById('f-notes2').value || '';
       var n3        = document.getElementById('f-notes3').value || '';
 
-      var wb    = buildWorkbook(date, project, inspector, checks, rate, n1, n2, n3);
+      var wb    = buildWorkbook(date, project, inspector, checks, rate, n1, n2, n3, photos);
       var fname = '安全パトロール_' + project + '_' + (date || 'nodate') + '.xlsx';
       XLSX.writeFile(wb, fname);
     }
@@ -649,7 +680,7 @@
       var n2        = r.notes2 || '';
       var n3        = r.notes3 || '';
 
-      var wb    = buildWorkbook(date, project, inspector, r.checks || {}, rate, n1, n2, n3);
+      var wb    = buildWorkbook(date, project, inspector, r.checks || {}, rate, n1, n2, n3, r.photos || []);
       var fname = '安全パトロール_' + project + '_' + (date || 'nodate') + '.xlsx';
       XLSX.writeFile(wb, fname);
     }
@@ -747,9 +778,15 @@
             + '<div class="stitle">📷 状況写真</div>'
             + '<div class="photo-col">';
           for (var q = p; q < Math.min(p + 3, pArr.length); q++) {
+            var pObj  = (typeof pArr[q] === 'string')
+                        ? { dataUrl: pArr[q], name: '', takenAt: '' }
+                        : pArr[q];
+            var pSrc  = pObj.dataUrl || '';
+            var pName = pObj.name    || '';
+            var pCap  = pName ? (pName) : ('写真 ' + (q + 1));
             photoPages += '<div class="pitem">'
-              + '<img src="' + pArr[q] + '" alt="写真' + (q+1) + '">'
-              + '<div class="pcap">写真 ' + (q+1) + '</div>'
+              + '<img src="' + pSrc + '" alt="写真' + (q+1) + '">'
+              + '<div class="pcap">' + pCap + '</div>'
               + '</div>';
           }
           photoPages += '</div></div>';
@@ -1049,8 +1086,17 @@
       for (var i = 0; i < files.length; i++) {
         (function(file) {
           compressImage(file, function(dataUrl) {
-            photos.push(dataUrl);
+            // {dataUrl, name, takenAt} オブジェクトとして保存
+            photos.push({
+              dataUrl: dataUrl,
+              name:    '',
+              takenAt: new Date().toISOString()
+            });
             refreshPhotos();
+            // 追加した写真の名前欄にフォーカス
+            var grid   = document.getElementById('photo-grid');
+            var inputs = grid.querySelectorAll('.photo-name');
+            if (inputs.length) inputs[inputs.length - 1].focus();
           });
         })(files[i]);
       }
@@ -1062,10 +1108,17 @@
       refreshPhotos();
     }
 
+    // 写真を正規化（旧形式の文字列を {dataUrl,name,takenAt} に変換）
+    function normalizePhoto(p) {
+      if (typeof p === 'string') {
+        return { dataUrl: p, name: '', takenAt: '' };
+      }
+      return p;
+    }
+
     function refreshPhotos() {
       var grid  = document.getElementById('photo-grid');
       var count = document.getElementById('photo-count');
-      // 既存のサムネを全削除
       while (grid.firstChild) grid.removeChild(grid.firstChild);
 
       if (!photos.length) {
@@ -1074,12 +1127,19 @@
       }
       count.textContent = photos.length + '枚';
 
-      photos.forEach(function(src, i) {
+      photos.forEach(function(photoRaw, i) {
+        var photo = normalizePhoto(photoRaw);
+
+        // ── カード（サムネ＋名前入力）────────────────────────
+        var card = document.createElement('div');
+        card.className = 'photo-card';
+
+        // サムネイル部
         var thumb = document.createElement('div');
         thumb.className = 'photo-thumb';
 
         var img = document.createElement('img');
-        img.src = src;
+        img.src = photo.dataUrl;
         img.alt = '写真' + (i + 1);
         thumb.appendChild(img);
 
@@ -1091,8 +1151,26 @@
           delBtn.addEventListener('click', function() { delPhoto(index); });
         })(i);
         thumb.appendChild(delBtn);
+        card.appendChild(thumb);
 
-        grid.appendChild(thumb);
+        // 写真名入力欄
+        var nameInput = document.createElement('input');
+        nameInput.type        = 'text';
+        nameInput.className   = 'photo-name';
+        nameInput.placeholder = '写真名（任意）';
+        nameInput.value       = photo.name || '';
+        nameInput.setAttribute('inputmode', 'text');
+        (function(index) {
+          nameInput.addEventListener('input', function() {
+            // photos 配列を直接更新
+            photos[index] = normalizePhoto(photos[index]);
+            photos[index].name = this.value;
+            markDirty();
+          });
+        })(i);
+        card.appendChild(nameInput);
+
+        grid.appendChild(card);
       });
     }
 
@@ -1194,7 +1272,8 @@
       checks = {};
       var k;
       for (k in (r.checks || {})) { checks[k] = r.checks[k]; }
-      photos = (r.photos || []).slice();
+      // 旧形式（文字列配列）も正規化してオブジェクトに統一
+      photos = (r.photos || []).map(normalizePhoto);
 
       document.getElementById('f-date').value       = r.date || todayStr();
       document.getElementById('f-inspector').value  = r.inspector || '';
@@ -1467,7 +1546,8 @@
       checks = {};
       var k;
       for (k in (r.checks || {})) { checks[k] = r.checks[k]; }
-      photos = (r.photos || []).slice();
+      // 旧形式（文字列配列）も正規化してオブジェクトに統一
+      photos = (r.photos || []).map(normalizePhoto);
       document.getElementById('f-date').value       = r.date || todayStr();
       document.getElementById('f-inspector').value  = r.inspector || '';
       document.getElementById('f-project').value    = r.projectName || '';
@@ -1568,35 +1648,44 @@
     //  同期処理
     // ============================================================
     function syncRecord(record, cb) {
+      var ctrl = new AbortController();
+      var timer = setTimeout(function() { ctrl.abort(); }, 10000); // 10秒タイムアウト
       fetch('/api/records', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(record)
+        body:    JSON.stringify(record),
+        signal:  ctrl.signal
       })
-      .then(function(r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function(r) {
+        clearTimeout(timer);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(function() { cb(true); })
-      .catch(function() { cb(false); });
+      .catch(function(e) {
+        clearTimeout(timer);
+        console.warn('[sync] レコード送信失敗 id=' + record.id, e && e.message);
+        cb(false);
+      });
     }
 
-    function syncAll() {
+    function syncAll(silent) {
       if (!navigator.onLine) {
-        showToast('オフラインです。WiFi接続後に同期してください');
+        if (!silent) showToast('オフラインです。WiFi接続後に同期してください');
         return;
       }
       var unsynced = records.filter(function(r) { return !r.synced; });
-      if (!unsynced.length) { showToast('同期済みです ✓'); return; }
+      if (!unsynced.length) { if (!silent) showToast('同期済みです ✓'); return; }
 
       var btn   = document.getElementById('sync-now-btn');
       var done  = 0;
       var failed = 0;
       var total = unsynced.length;
-      btn.disabled    = true;
-      btn.textContent = '同期中 0/' + total;
+      if (btn) { btn.disabled = true; btn.textContent = '同期中 0/' + total; }
 
       function next(idx) {
         if (idx >= total) {
-          btn.disabled    = false;
-          btn.textContent = '☁ 今すぐ同期';
+          if (btn) { btn.disabled = false; btn.textContent = '☁ 今すぐ同期'; }
           var msg = done + '件同期しました ✓';
           if (failed) { msg += '（' + failed + '件失敗）'; }
           showToast(msg);
@@ -1616,7 +1705,7 @@
           } else {
             failed++;
           }
-          btn.textContent = '同期中 ' + (done + failed) + '/' + total;
+          if (btn) { btn.textContent = '同期中 ' + (done + failed) + '/' + total; }
           next(idx + 1);
         });
       }
@@ -1655,6 +1744,7 @@
                 records = Object.keys(localMap).map(function(k) { return localMap[k]; })
                   .sort(function(a, b) { return b.id - a.id; });
                 refreshRecCount();
+                renderHistory(); // 他端末からのレコードを画面に反映
               }
               refreshSyncStatus();
               return;
@@ -1787,7 +1877,15 @@
       document.getElementById('sync-now-btn').addEventListener('click', syncAll);
 
       // オンライン・オフライン検知
-      window.addEventListener('online',  function() { updateOnlineStatus(); showToast('🟢 オンライン接続しました'); });
+      window.addEventListener('online', function() {
+        updateOnlineStatus();
+        showToast('🟢 オンライン接続しました');
+        // オンライン復帰時: 未同期データをアップロード → サーバーから新着を取得
+        setTimeout(function() {
+          syncAll(true);   // silent=true: 「同期済みです」トーストを抑制
+          fetchAndMerge();
+        }, 1000); // 接続が安定するまで少し待つ
+      });
       window.addEventListener('offline', function() { updateOnlineStatus(); showToast('🔴 オフラインになりました'); });
 
       // ユーザー設定

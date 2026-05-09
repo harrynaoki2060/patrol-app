@@ -1,38 +1,46 @@
 // ============================================================
 //  GET  /api/records  → 全レコード返却
-//  POST /api/records  → レコード保存（id重複時は上書き）
+//  POST /api/records  → レコード保存（upsert）
 //
-//  データストア: Vercel KV (Redis)
-//  KV_KEY: 'patrol_records' → JSON配列
+//  KV 構造:
+//    patrol:index       → number[]  レコードIDの配列
+//    patrol:r:{id}      → Record    個別レコード
+//
+//  ※ 1キーに全件詰め込まず個別保存することで
+//    写真付きの大容量レコードも安全に扱える
 // ============================================================
 
 const { kv } = require('@vercel/kv');
 
-const KV_KEY = 'patrol_records';
+const INDEX_KEY  = 'patrol:index';
+const recKey = function(id) { return 'patrol:r:' + id; };
 
 module.exports = async function handler(req, res) {
-  // CORS ヘッダー（同一ドメインでも安全のため設定）
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // プリフライトリクエスト
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
+  if (req.method === 'OPTIONS') return res.status(204).end();
 
   try {
-    // ── GET: 全レコードを返す ─────────────────────────────
+    // ── GET: インデックス取得 → 全レコードを mget ──────────────
     if (req.method === 'GET') {
-      const records = (await kv.get(KV_KEY)) || [];
-      // 新しい順に並び替えて返す
-      const sorted = Array.isArray(records)
-        ? records.sort(function(a, b) { return b.id - a.id; })
-        : [];
-      return res.status(200).json(sorted);
+      const ids = (await kv.get(INDEX_KEY)) || [];
+      if (!ids.length) return res.status(200).json([]);
+
+      // 最大50件に絞る（古い順に切り捨て）
+      const recent = ids.slice(-50);
+      const keys   = recent.map(recKey);
+      const vals   = await kv.mget(...keys);
+
+      const records = vals
+        .filter(Boolean)
+        .sort(function(a, b) { return b.id - a.id; });
+
+      return res.status(200).json(records);
     }
 
-    // ── POST: レコード保存 ────────────────────────────────
+    // ── POST: 個別レコードを upsert ────────────────────────────
     if (req.method === 'POST') {
       const record = req.body;
 
@@ -40,17 +48,21 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ ok: false, error: 'id が必要です' });
       }
 
-      const records = (await kv.get(KV_KEY)) || [];
+      const id = Number(record.id);
 
-      // 同じ id のレコードがあれば上書き、なければ追加
-      const idx = records.findIndex(function(r) { return r.id === record.id; });
-      if (idx >= 0) {
-        records[idx] = record;
-      } else {
-        records.push(record);
+      // インデックス更新
+      const ids = (await kv.get(INDEX_KEY)) || [];
+      if (!ids.includes(id)) {
+        ids.push(id);
+        // 古いIDを削除（最大100件保持）
+        const trimmed = ids.sort(function(a, b) { return a - b; }).slice(-100);
+        await kv.set(INDEX_KEY, trimmed);
       }
 
-      await kv.set(KV_KEY, records);
+      // レコード個別保存（有効期限なし）
+      await kv.set(recKey(id), record);
+
+      console.log('[API] POST id=' + id);
       return res.status(200).json({ ok: true });
     }
 
@@ -58,10 +70,12 @@ module.exports = async function handler(req, res) {
 
   } catch (err) {
     console.error('[API /records] エラー:', err.message || err);
-    // KV 未設定の場合は 503 を返す（アプリは IndexedDB で動作継続）
+    const isKvMissing = err.message && err.message.includes('KV_');
     return res.status(503).json({
-      ok: false,
-      error: 'ストレージが設定されていません。Vercel KV を接続してください。'
+      ok:    false,
+      error: isKvMissing
+        ? 'Vercel KV が未接続です。Vercel ダッシュボードで Storage → KV を接続してください。'
+        : ('サーバーエラー: ' + (err.message || 'unknown'))
     });
   }
 };

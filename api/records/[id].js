@@ -1,10 +1,15 @@
 // ============================================================
 //  DELETE /api/records/:id → 指定 id のレコードを削除
+//
+//  KV 構造（records.js と同じ）:
+//    patrol:index   → number[]  レコードIDの配列
+//    patrol:r:{id}  → Record    個別レコード
 // ============================================================
 
 const { kv } = require('@vercel/kv');
 
-const KV_KEY = 'patrol_records';
+const INDEX_KEY = 'patrol:index';
+const recKey = function(id) { return 'patrol:r:' + id; };
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin',  '*');
@@ -26,18 +31,27 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'id が必要です' });
     }
 
-    const records = (await kv.get(KV_KEY)) || [];
-    const filtered = records.filter(function(r) {
-      return String(r.id) !== String(id);
-    });
+    const numId = Number(id);
 
-    await kv.set(KV_KEY, filtered);
+    // インデックスから削除
+    const ids = (await kv.get(INDEX_KEY)) || [];
+    const newIds = ids.filter(function(i) { return i !== numId; });
+    await kv.set(INDEX_KEY, newIds);
 
-    console.log('[API] DELETE id=' + id);
+    // 個別レコードキーを削除
+    await kv.del(recKey(numId));
+
+    console.log('[API] DELETE id=' + numId);
     return res.status(200).json({ ok: true });
 
   } catch (err) {
     console.error('[API /records/:id] エラー:', err.message || err);
-    return res.status(503).json({ ok: false, error: 'ストレージエラー' });
+    const isKvMissing = err.message && err.message.includes('KV_');
+    return res.status(503).json({
+      ok:    false,
+      error: isKvMissing
+        ? 'Vercel KV が未接続です。Vercel ダッシュボードで Storage → KV を接続してください。'
+        : ('サーバーエラー: ' + (err.message || 'unknown'))
+    });
   }
 };
