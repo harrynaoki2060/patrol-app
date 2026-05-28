@@ -1,0 +1,256 @@
+# =============================================================================
+# Nginx 本番設定 — HTTPS + セキュリティヘッダー + 強化レートリミット
+#
+# 使い方:
+#   このファイルは docker-compose.prod.yml で nginx コンテナにマウントする。
+#   nginx:1.25 イメージは /etc/nginx/templates/*.template を自動で envsubst 処理する。
+#
+# 必要な環境変数:
+#   DOMAIN      — ドメイン名 (例: entry.example.com)
+#
+# 証明書パス (certbot で取得):
+#   /etc/letsencrypt/live/${DOMAIN}/fullchain.pem
+#   /etc/letsencrypt/live/${DOMAIN}/privkey.pem
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# レート制限ゾーン定義
+# ---------------------------------------------------------------------------
+
+# 管理者ログイン: 非常に厳しい制限（ブルートフォース対策）
+limit_req_zone $binary_remote_addr zone=admin_login:10m    rate=5r/m;
+
+# リフレッシュトークン: 適度な制限（正常な SPA 操作を許容）
+limit_req_zone $binary_remote_addr zone=admin_refresh:10m  rate=10r/m;
+
+# QR 検証: IP ごとに 10 req/min（burst=5）
+limit_req_zone $binary_remote_addr zone=qr_verify:10m      rate=10r/m;
+
+# 一般公開 API
+limit_req_zone $binary_remote_addr zone=public_api:10m     rate=30r/m;
+
+# 入場申請送信: 厳しいレート制限（多重送信対策）
+limit_req_zone $binary_remote_addr zone=submit_api:10m     rate=5r/m;
+
+# 管理 API（通常操作）
+limit_req_zone $binary_remote_addr zone=admin_api:10m      rate=60r/m;
+
+# ---------------------------------------------------------------------------
+# アップストリーム定義
+# ---------------------------------------------------------------------------
+upstream backend {
+    server backend:8000;
+    keepalive 16;
+}
+
+upstream frontend {
+    server frontend:3000;
+    keepalive 16;
+}
+
+# ---------------------------------------------------------------------------
+# HTTP サーバー (80) — Let's Encrypt ACME challenge + HTTPS リダイレクト
+# ---------------------------------------------------------------------------
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    # Let's Encrypt ACME challenge (証明書更新時に使用)
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+    }
+
+    # それ以外はすべて HTTPS にリダイレクト
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# HTTPS サーバー (443) — メインサーバーブロック
+# ---------------------------------------------------------------------------
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    # -------------------------------------------------------------------
+    # TLS 設定
+    # -------------------------------------------------------------------
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+    # TLS プロトコル: 1.2 / 1.3 のみ許可
+    ssl_protocols TLSv1.2 TLSv1.3;
+    # 強力な暗号スイートのみ許可 (Mozilla Intermediate 推奨)
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+
+    # OCSP Stapling
+    ssl_stapling        on;
+    ssl_stapling_verify on;
+    resolver 8.8.8.8 8.8.4.4 valid=300s;
+    resolver_timeout    5s;
+
+    # -------------------------------------------------------------------
+    # セキュリティヘッダー
+    # -------------------------------------------------------------------
+
+    # HSTS: 2 年間 HTTPS を強制（最初にアクセスしたブラウザに記憶される）
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    # MIME スニッフィング防止
+    add_header X-Content-Type-Options "nosniff" always;
+
+    # クリックジャッキング防止（iframe 埋め込み禁止）
+    add_header X-Frame-Options "DENY" always;
+
+    # リファラー情報の制限（外部サイトへの URL 流出防止）
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # カメラ・マイク・位置情報へのアクセス禁止
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+    # Content Security Policy
+    # NOTE: Next.js は SSR hydration のため 'unsafe-inline' が必要。
+    # TODO: nonce ベース CSP への移行（Phase 9 候補）
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none';" always;
+
+    # タイムアウト設定
+    proxy_connect_timeout 10s;
+    proxy_send_timeout    60s;
+    proxy_read_timeout    60s;
+
+    # -------------------------------------------------------------------
+    # バックエンド API プロキシ — 認証・レートリミット
+    # -------------------------------------------------------------------
+
+    # 管理者ログイン (最も厳格: 5 req/min)
+    location = /api/admin/auth/login {
+        limit_req zone=admin_login burst=2 nodelay;
+        limit_req_status 429;
+        proxy_pass http://backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # リフレッシュトークン (10 req/min)
+    location = /api/admin/auth/refresh {
+        limit_req zone=admin_refresh burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass http://backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # QR 検証 (10 req/min — ブルートフォース対策の最外郭)
+    location = /api/public/qr/verify {
+        limit_req zone=qr_verify burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass http://backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # 公開 QR API (一般)
+    location /api/public/qr/ {
+        limit_req zone=public_api burst=10 nodelay;
+        proxy_pass http://backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # 公開 API（作業員検索 / 申請）
+    location ~ ^/api/public/(workers|entries) {
+        limit_req zone=submit_api burst=3 nodelay;
+        limit_req_status 429;
+        proxy_pass http://backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # 管理 API (social intranet — 必要なら IP 制限を有効化)
+    location /api/admin/ {
+        # =========================================================
+        # 社内 LAN からのみアクセスを許可する場合は以下を有効化:
+        # allow 192.168.0.0/16;
+        # allow 10.0.0.0/8;
+        # deny all;
+        # =========================================================
+
+        limit_req zone=admin_api burst=20 nodelay;
+        proxy_pass http://backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # その他 API（ドキュメント等）
+    location /api/ {
+        proxy_pass http://backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # -------------------------------------------------------------------
+    # フロントエンド (Next.js)
+    # -------------------------------------------------------------------
+
+    # 静的ファイル (長期キャッシュ)
+    location /_next/static/ {
+        proxy_pass http://frontend;
+        proxy_set_header Host $host;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    # フロントエンド (すべて Next.js に渡す)
+    location / {
+        proxy_pass http://frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host       $host;
+        proxy_set_header X-Real-IP  $remote_addr;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # -------------------------------------------------------------------
+    # ヘルスチェック
+    # -------------------------------------------------------------------
+    location /nginx-health {
+        access_log off;
+        return 200 "nginx ok\n";
+        add_header Content-Type text/plain always;
+    }
+}

@@ -3,3 +3,27 @@ data/
 *.ps1
 *.bat
 .claude/
+
+# 本番環境変数（秘密情報を含む — コミット禁止）
+.env
+.env.local
+.env.staging
+
+# .env.example と .env.production はテンプレートとしてコミット可能
+# 実際の .env はコミットしないこと
+
+# バックアップファイル
+backups/
+*.sql.gz
+
+# フロントエンドビルド成果物
+frontend/.next/
+frontend/out/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/

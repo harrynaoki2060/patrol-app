@@ -211,7 +211,7 @@ export default function EntryTokenPage({ params }: PageProps) {
         <div className="pt-4">
           <Button
             type="submit"
-            loading={screen === 'verifying'}
+            loading={false}
             disabled={pin.length < 4}
           >
             確認する

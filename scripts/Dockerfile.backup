@@ -1,0 +1,28 @@
+# =============================================================================
+# バックアップコンテナイメージ
+# pg_dump (PostgreSQL クライアント) + mc (MinIO Client) を両方搭載
+# =============================================================================
+FROM postgres:16-alpine
+
+# MinIO Client (mc) をインストール
+# アーキテクチャ自動検出 (amd64 / arm64)
+RUN apk add --no-cache curl && \
+    ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
+    curl -fsSL "https://dl.min.io/client/mc/release/linux-${ARCH}/mc" \
+      -o /usr/local/bin/mc && \
+    chmod +x /usr/local/bin/mc && \
+    mc --version
+
+# バックアップ用ディレクトリ
+RUN mkdir -p /backups/postgres /backups/minio
+
+# スクリプトをコピー（docker-compose.prod.yml で ./scripts:/scripts:ro マウントも使用）
+COPY entrypoint_backup.sh /entrypoint_backup.sh
+COPY backup_postgres.sh   /backup_postgres.sh
+COPY backup_minio.sh      /backup_minio.sh
+COPY restore_postgres.sh  /restore_postgres.sh
+
+RUN chmod +x /entrypoint_backup.sh /backup_postgres.sh \
+              /backup_minio.sh /restore_postgres.sh
+
+CMD ["/entrypoint_backup.sh"]

@@ -1,0 +1,204 @@
+version: '3.9'
+
+# =============================================================================
+# 本番環境 Docker Compose オーバーレイ
+#
+# 使い方:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# ベース docker-compose.yml との主な差異:
+#   1. リソース制限 (mem_limit / cpus)
+#   2. ログローテーション (json-file driver)
+#   3. ネットワーク分離 (web / app / db 層)
+#   4. Nginx: HTTPS (443) + Let's Encrypt 証明書 + 本番設定テンプレート
+#   5. Backend: SECRET_KEY など本番必須環境変数
+#   6. バックアップコンテナ (daily pg_dump + MinIO mirror)
+#   7. Certbot コンテナ (証明書取得 / 更新用)
+# =============================================================================
+
+networks:
+  # Web 層: nginx のみが外部に面する
+  web_net:
+    driver: bridge
+    name: patrol_web_net
+  # App 層: nginx ↔ frontend ↔ backend
+  app_net:
+    driver: bridge
+    name: patrol_app_net
+  # DB 層: backend / backup のみが接続可能
+  db_net:
+    driver: bridge
+    name: patrol_db_net
+    internal: true      # 外部ネットワークとルーティングなし
+
+volumes:
+  certbot_webroot:  # ACME challenge 用 webroot
+  certbot_certs:    # Let's Encrypt 証明書（nginx / certbot で共有）
+  backup_data:      # バックアップデータ永続化
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Nginx — HTTPS + Let's Encrypt + 本番セキュリティヘッダー
+  # ---------------------------------------------------------------------------
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - web_net
+      - app_net
+    volumes:
+      - ./nginx/conf.d/default.prod.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - certbot_webroot:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    environment:
+      DOMAIN: ${DOMAIN}
+      NGINX_ENVSUBST_TEMPLATE_SUFFIX: .template
+    mem_limit: 128m
+    cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  # Frontend (Next.js) — 本番ビルド
+  # ---------------------------------------------------------------------------
+  frontend:
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_SITE_URL: "https://${DOMAIN}"
+    mem_limit: 512m
+    cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - app_net
+
+  # ---------------------------------------------------------------------------
+  # Backend (FastAPI) — 本番設定
+  # ---------------------------------------------------------------------------
+  backend:
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALLOWED_ORIGINS: "https://${DOMAIN}"
+    mem_limit: 512m
+    cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "10"
+    networks:
+      - app_net
+      - db_net
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — DB 層に隔離
+  # ---------------------------------------------------------------------------
+  postgres:
+    mem_limit: 512m
+    cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - db_net   # app_net には参加しない（backend 経由のみ）
+
+  # ---------------------------------------------------------------------------
+  # Redis — DB 層に隔離
+  # ---------------------------------------------------------------------------
+  redis:
+    mem_limit: 128m
+    cpus: "0.25"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    networks:
+      - db_net
+
+  # ---------------------------------------------------------------------------
+  # MinIO — DB 層に隔離
+  # ---------------------------------------------------------------------------
+  minio:
+    mem_limit: 256m
+    cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - db_net
+    ports: []   # ベースの :9000/:9001 公開を無効化（管理コンソール非公開）
+
+  # ---------------------------------------------------------------------------
+  # MinIO 初期化
+  # ---------------------------------------------------------------------------
+  minio-init:
+    networks:
+      - db_net
+
+  # ---------------------------------------------------------------------------
+  # バックアップ — 毎日 PostgreSQL dump + MinIO mirror
+  # ---------------------------------------------------------------------------
+  backup:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.backup
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-entry-documents}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_DIR: /backups
+    volumes:
+      - backup_data:/backups
+      - ./scripts:/scripts:ro
+    networks:
+      - db_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.25"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    command: ["/scripts/entrypoint_backup.sh"]
+
+  # ---------------------------------------------------------------------------
+  # Certbot — Let's Encrypt 証明書管理
+  # 初回取得: docker compose run --rm certbot certonly ...
+  # 更新:     docker compose run --rm certbot renew
+  # ---------------------------------------------------------------------------
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_webroot:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    networks:
+      - web_net
+    restart: "no"
+    # 使い方: docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+    #           run --rm certbot certonly --webroot \
+    #           -w /var/www/certbot -d YOUR_DOMAIN \
+    #           --email YOUR_EMAIL --agree-tos --no-eff-email

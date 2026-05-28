@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { quickMatchWorker, createDraft, submitEntry } from '@/lib/api/public'
+import { quickMatchWorker, createDraft, updateDraft, submitEntry } from '@/lib/api/public'
 import { ApiError } from '@/lib/api/client'
 import { Button } from '@/components/ui/Button'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
@@ -91,7 +91,10 @@ export default function QuickEntryPage() {
       setInputError('生まれ日を正しく入力してください（1〜31）')
       return
     }
-    if (!sessionToken) return
+    if (!sessionToken) {
+  router.replace(`/entry/${token}`)
+  return
+}
 
     setScreen('matching')
     try {
@@ -136,7 +139,6 @@ export default function QuickEntryPage() {
       )
 
       // 2. Draft を更新（入場日・健康・同意）
-      const { updateDraft } = await import('@/lib/api/public')
       await updateDraft(
         draft.id,
         {
@@ -372,7 +374,7 @@ export default function QuickEntryPage() {
             <Button
               type="submit"
               disabled={!consentAgreed}
-              loading={screen === 'submitting'}
+              loading={false}
             >
               申請する
             </Button>
@@ -486,7 +488,7 @@ export default function QuickEntryPage() {
         </div>
 
         <div className="pt-2 space-y-3">
-          <Button type="submit" loading={screen === 'matching'}>
+          <Button type="submit" loading={false}>
             照合する
           </Button>
           <Button
