@@ -298,6 +298,56 @@
       cursor: pointer; font-family: inherit; touch-action: manipulation;
     }
     .sync-now-btn:disabled { background: #9ca3af; cursor: default; }
+    .diag-btn {
+      padding: 5px 11px; background: #7c3aed; color: white;
+      border: none; border-radius: 8px; font-size: 11px; font-weight: 700;
+      cursor: pointer; font-family: inherit; touch-action: manipulation;
+    }
+    .diag-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 500;
+    }
+    .diag-modal {
+      position: fixed; inset: 12px; z-index: 501; background: white;
+      border-radius: 14px; display: flex; flex-direction: column;
+      overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .diag-hd {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; background: #7c3aed; color: white;
+      font-size: 15px; font-weight: 700; flex-shrink: 0;
+    }
+    .diag-close {
+      background: rgba(255,255,255,0.2); border: none; color: white;
+      width: 30px; height: 30px; border-radius: 50%; font-size: 18px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-family: inherit; touch-action: manipulation;
+    }
+    .diag-body { padding: 16px; overflow-y: auto; flex: 1; font-size: 13px; }
+    .diag-sec { margin-bottom: 18px; }
+    .diag-sec-ttl {
+      font-size: 13px; font-weight: 700; color: #374151;
+      margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb;
+    }
+    .diag-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 4px; border-bottom: 1px solid #f3f4f6; gap: 8px;
+    }
+    .diag-label { color: #6b7280; flex-shrink: 0; }
+    .diag-val   { font-weight: 700; font-family: monospace; font-size: 13px; }
+    .diag-ok    { color: #16a34a; }
+    .diag-warn  { color: #dc2626; }
+    .diag-tbl { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
+    .diag-tbl th {
+      background: #f3f4f6; padding: 5px 6px;
+      text-align: left; font-size: 11px; border-bottom: 1px solid #e5e7eb;
+    }
+    .diag-tbl td {
+      padding: 5px 6px; border-bottom: 1px solid #f3f4f6;
+      vertical-align: top; word-break: break-all;
+    }
+    .diag-tbl tr.diag-warn-row td { background: #fff5f5; }
+    .diag-mono { font-family: monospace; font-size: 10px; }
+    .diag-note { font-size: 11px; color: #9ca3af; margin-top: 6px; }
     .draft-indicator { margin-left: auto; font-size: 11px; color: #9ca3af; }
 
     /* 履歴 同期バッジ */
@@ -436,7 +486,22 @@
       <span id="net-status" class="net-status net-offline">🔴 オフライン</span>
       <span id="unsynced-label" class="unsynced-label" style="display:none">未同期 <span id="unsynced-count">0</span>件</span>
       <button type="button" id="sync-now-btn" class="sync-now-btn" style="display:none">☁ 今すぐ同期</button>
+      <button type="button" id="diag-btn" class="diag-btn">🔍 診断</button>
       <span id="draft-indicator" class="draft-indicator"></span>
+    </div>
+
+    <!-- 同期診断パネル -->
+    <div id="diag-panel" style="display:none">
+      <div class="diag-overlay" id="diag-overlay"></div>
+      <div class="diag-modal">
+        <div class="diag-hd">
+          <span>🔍 同期診断レポート</span>
+          <button type="button" class="diag-close" id="diag-close">×</button>
+        </div>
+        <div class="diag-body" id="diag-body">
+          <p style="color:#9ca3af;text-align:center;padding:20px">計測中…</p>
+        </div>
+      </div>
     </div>
 
     <!-- フォームビュー -->
@@ -912,12 +977,11 @@
         '.empty{font-size:9pt;color:#9ca3af;font-style:italic;padding:3pt 0}',
 
         /* 写真列（3枚/ページ） */
-        '.photo-col{display:flex;flex-direction:column;gap:8pt}',
-        '.pitem{break-inside:avoid;page-break-inside:avoid}',
-        '.pitem img{width:100%;height:auto;display:block;border:1pt solid #e5e7eb;border-radius:3pt}',
-        '.pcap{text-align:center;font-size:8pt;color:#6b7280;margin-top:3pt}',
-        /* 印刷時：3枚がA4に収まるよう最大高を制限 */
-        '@media print{.pitem img{max-height:78mm;object-fit:contain}}'
+        '.photo-col{display:block}',
+        '.pitem{display:block;height:79mm;overflow:hidden;margin-bottom:2mm;break-inside:avoid;page-break-inside:avoid}',
+        '.pitem:last-child{margin-bottom:0}',
+        '.pitem img{display:block;width:100%;height:71mm;object-fit:contain;background-color:#f3f4f6;border:1pt solid #e5e7eb;border-radius:3pt}',
+        '.pcap{height:8mm;line-height:8mm;text-align:center;font-size:8pt;color:#374151;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 4pt}'
       ].join('');
 
       return '<!DOCTYPE html>'
@@ -1106,10 +1170,14 @@
     //  写真
     // ============================================================
     // ============================================================
-    //  画像圧縮: 長辺 1600px / JPEG 品質 70%
+    //  画像圧縮設定
+    //  目標: 1枚 50〜200KB → 9枚合計 1.8MB 以下
+    //  Upstash Redis 上限 10MB に対して余裕を持って収まる
     // ============================================================
-    var PHOTO_MAX_LONG = 1600;   // 長辺の上限（px）
-    var PHOTO_QUALITY  = 0.70;   // JPEG 品質
+    var PHOTO_MAX_LONG  = 1000;            // 長辺の上限（px）
+    var PHOTO_QUALITY   = 0.50;            // JPEG 品質
+    var PHOTO_MAX_COUNT = 9;               // 1レコードの最大枚数
+    var SYNC_MAX_BYTES  = 8 * 1024 * 1024; // 同期時の上限サイズ（8MB）
 
     function compressImage(file, cb) {
       var reader = new FileReader();
@@ -1140,21 +1208,65 @@
       reader.readAsDataURL(file);
     }
 
+    // 既存 dataUrl を再圧縮（推定サイズが閾値超の場合のみ）
+    function compressDataUrl(dataUrl, cb) {
+      if (!dataUrl || !dataUrl.startsWith('data:')) { cb(dataUrl); return; }
+      var estBytes = Math.round(dataUrl.length * 0.75);
+      var THRESH   = 900 * 1024;
+      if (estBytes < THRESH) { cb(dataUrl); return; }
+      var img = new Image();
+      img.onload = function() {
+        var w = img.width, h = img.height;
+        var longSide = Math.max(w, h);
+        if (longSide > PHOTO_MAX_LONG) {
+          var ratio = PHOTO_MAX_LONG / longSide;
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        cb(canvas.toDataURL('image/jpeg', PHOTO_QUALITY));
+      };
+      img.onerror = function() { cb(dataUrl); };
+      img.src = dataUrl;
+    }
+
+    function compressAllPhotos(arr, cb) {
+      var result = (arr || []).slice();
+      if (!result.length) { cb(result); return; }
+      var i = 0;
+      function next() {
+        if (i >= result.length) { cb(result); return; }
+        var p = normalizePhoto(result[i]);
+        compressDataUrl(p.dataUrl || '', function(compressed) {
+          result[i] = { dataUrl: compressed, name: p.name, takenAt: p.takenAt };
+          i++;
+          next();
+        });
+      }
+      next();
+    }
+
     function onPhoto(input) {
       var files = input.files;
       if (!files || !files.length) return;
+      if (photos.length >= PHOTO_MAX_COUNT) {
+        showToast('写真は' + PHOTO_MAX_COUNT + '枚までです');
+        input.value = '';
+        return;
+      }
       for (var i = 0; i < files.length; i++) {
         (function(file) {
           compressImage(file, function(dataUrl) {
-            // {dataUrl, name, takenAt} オブジェクトとして保存
-            photos.push({
-              dataUrl: dataUrl,
-              name:    '',
-              takenAt: new Date().toISOString()
-            });
+            if (photos.length >= PHOTO_MAX_COUNT) {
+              showToast('写真は' + PHOTO_MAX_COUNT + '枚までです');
+              return;
+            }
+            photos.push({ dataUrl: dataUrl, name: '', takenAt: new Date().toISOString() });
             refreshPhotos();
-            // 追加した写真の名前欄にフォーカス
-            var grid   = document.getElementById('photo-grid');
+            markDirty();
+            var grid = document.getElementById('photo-grid');
             var inputs = grid.querySelectorAll('.photo-name');
             if (inputs.length) inputs[inputs.length - 1].focus();
           });
@@ -1240,11 +1352,17 @@
     function doSave() {
       var record = collectFormData();
       record.synced = false;
-
       var btn = document.getElementById('save-btn');
       btn.textContent = '保存中…';
       btn.disabled = true;
+      compressAllPhotos(record.photos, function(compressed) {
+        record.photos = compressed;
+        photos = compressed;
+        doSaveWithRecord(record, btn);
+      });
+    }
 
+    function doSaveWithRecord(record, btn) {
       // ① IndexedDB にまず保存
       dbPut('records', record, function(err) {
         if (err) {
@@ -1803,12 +1921,21 @@
     //  同期処理
     // ============================================================
     function syncRecord(record, cb) {
+      var jsonStr  = JSON.stringify(record);
+      var estBytes = new Blob([jsonStr]).size;
+      if (estBytes > SYNC_MAX_BYTES) {
+        var mb = (estBytes / 1024 / 1024).toFixed(1);
+        showToast('写真容量が大きすぎます（' + mb + 'MB）。写真を減らしてください');
+        console.warn('[sync] サイズ超過 id=' + record.id + ' ' + mb + 'MB');
+        cb(false);
+        return;
+      }
       var ctrl = new AbortController();
-      var timer = setTimeout(function() { ctrl.abort(); }, 10000); // 10秒タイムアウト
+      var timer = setTimeout(function() { ctrl.abort(); }, 10000);
       fetch('/api/records', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(record),
+        body:    jsonStr,
         signal:  ctrl.signal
       })
       .then(function(r) {
@@ -1822,6 +1949,109 @@
         console.warn('[sync] レコード送信失敗 id=' + record.id, e && e.message);
         cb(false);
       });
+    }
+
+    function runSyncDiag() {
+      var panel = document.getElementById('diag-panel');
+      var body  = document.getElementById('diag-body');
+      panel.style.display = '';
+      body.innerHTML = '<p style="color:#9ca3af;text-align:center;padding:20px">計測中…</p>';
+      setTimeout(function() {
+        function esc(s) {
+          return String(s == null ? '' : s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+        function blobBytes(str) { return new Blob([str]).size; }
+        function fmtMB(b) { return (b/1024/1024).toFixed(2)+' MB'; }
+        function fmtKB(b) { return (b/1024).toFixed(0)+' KB'; }
+        function valHtml(text, warn) {
+          return '<span class="diag-val '+(warn?'diag-warn':'diag-ok')+'">'+esc(text)+'</span>';
+        }
+        function row(label, valText, warn) {
+          return '<div class="diag-row"><span class="diag-label">'+esc(label)+'</span>'
+            +valHtml(valText,warn)+'</div>';
+        }
+
+        var unsynced = records.filter(function(r){return !r.synced;});
+        var allBytes = blobBytes(JSON.stringify(records));
+
+        var recDetails = records.map(function(r) {
+          var recBytes   = blobBytes(JSON.stringify(r));
+          var photos     = r.photos || [];
+          var photoBytes = blobBytes(JSON.stringify(photos));
+          var metaBytes  = blobBytes(JSON.stringify(Object.assign({},r,{photos:[]})));
+          var maxPhoto   = 0;
+          photos.forEach(function(p){
+            var s = blobBytes((typeof p==='string')?p:(p.dataUrl||''));
+            if(s>maxPhoto) maxPhoto=s;
+          });
+          return {
+            id:r.id, date:r.date||'―', project:r.projectName||'（未入力）',
+            photoCount:photos.length, recBytes:recBytes, photoBytes:photoBytes,
+            metaBytes:metaBytes, maxPhoto:maxPhoto, synced:r.synced
+          };
+        });
+
+        var maxRecBytes   = recDetails.reduce(function(m,r){return Math.max(m,r.recBytes);},0);
+        var maxPhotoBytes = recDetails.reduce(function(m,r){return Math.max(m,r.maxPhoto);},0);
+        var totalPhotoB   = recDetails.reduce(function(s,r){return s+r.photoBytes;},0);
+        var maxUnsyncedB  = unsynced.reduce(function(m,r){
+          return Math.max(m,blobBytes(JSON.stringify(r)));
+        },0);
+
+        var html = '';
+
+        html += '<div class="diag-sec"><div class="diag-sec-ttl">📊 サマリ</div>';
+        html += row('全レコード数',          records.length+' 件');
+        html += row('未同期レコード数',      unsynced.length+' 件', unsynced.length>0);
+        html += row('records 全体サイズ',   fmtMB(allBytes));
+        html += row('最大レコードサイズ',   fmtMB(maxRecBytes),   maxRecBytes>8*1024*1024);
+        html += row('写真 最大1枚サイズ',   fmtKB(maxPhotoBytes), maxPhotoBytes>500*1024);
+        html += row('写真 全レコード総計',  fmtMB(totalPhotoB));
+        html += row('同期対象 最大payload', fmtMB(maxUnsyncedB),  maxUnsyncedB>8*1024*1024);
+        html += '</div>';
+
+        html += '<div class="diag-sec"><div class="diag-sec-ttl">③ 未同期レコードの実測 payload サイズ</div>';
+        if(!unsynced.length){
+          html += '<p class="diag-note">未同期レコードなし</p>';
+        } else {
+          unsynced.forEach(function(r,i){
+            var b=blobBytes(JSON.stringify(r));
+            html += '<div class="diag-row"><span class="diag-label">['+i+'] '+esc(r.date)+' '+esc(r.projectName||'未入力')+'</span>'
+              +valHtml(fmtMB(b), b>8*1024*1024)+'</div>';
+          });
+        }
+        html += '</div>';
+
+        html += '<div class="diag-sec"><div class="diag-sec-ttl">④ records の型確認（誤送信チェック）</div>';
+        html += row('records の型', Array.isArray(records)?'配列（records[]）':'object（単一）', false);
+        html += '<div class="diag-note">syncRecord() に渡す引数は単一オブジェクトであること</div></div>';
+
+        var sorted = recDetails.slice().sort(function(a,b){return b.recBytes-a.recBytes;});
+        html += '<div class="diag-sec"><div class="diag-sec-ttl">⑥ 大きいレコード TOP10（降順）</div>';
+        html += '<table class="diag-tbl"><thead><tr>'
+          +'<th>日付</th><th>工事名</th><th style="text-align:center">写真</th>'
+          +'<th style="text-align:right">合計</th><th style="text-align:right">写真分</th>'
+          +'<th style="text-align:right">メタ</th><th style="text-align:center">同期</th>'
+          +'</tr></thead><tbody>';
+
+        sorted.slice(0,10).forEach(function(r){
+          var over = r.recBytes>8*1024*1024;
+          html += '<tr'+(over?' class="diag-warn-row"':'')+'>'
+            +'<td class="diag-mono">'+esc(r.date)+'</td>'
+            +'<td>'+esc(r.project)+'</td>'
+            +'<td style="text-align:center">'+r.photoCount+'枚</td>'
+            +'<td style="text-align:right;font-weight:700'+(over?';color:#dc2626':'')+'">'+fmtMB(r.recBytes)+'</td>'
+            +'<td style="text-align:right">'+fmtMB(r.photoBytes)+'</td>'
+            +'<td style="text-align:right">'+fmtKB(r.metaBytes)+'</td>'
+            +'<td style="text-align:center">'+(r.synced?'✓':'●未')+'</td>'
+            +'</tr>';
+        });
+        html += '</tbody></table>';
+        html += '<div class="diag-note">● = 未同期　✓ = 同期済み</div></div>';
+
+        body.innerHTML = html;
+      }, 30);
     }
 
     function syncAll(silent) {
@@ -1879,14 +2109,20 @@
           var toAdd = [];
           srvRecs.forEach(function(sr) {
             if (localMap[sr.id]) {
-              // ローカルにある → 同期済みとしてマーク
-              if (!localMap[sr.id].synced) {
-                localMap[sr.id].synced = true;
-                dbPut('records', localMap[sr.id], null);
+              var local = localMap[sr.id];
+              if (!local.synced) {
+                local.synced = true;
+                dbPut('records', local, null);
+              }
+              if ((!local.photos || local.photos.length === 0) &&
+                  sr.photos && sr.photos.length > 0) {
+                local.photos = sr.photos;
+                dbPut('records', local, null);
               }
             } else {
               // ローカルにない → 追加
               sr.synced = true;
+              if (!sr.photos) sr.photos = [];
               localMap[sr.id] = sr;
               toAdd.push(sr);
             }
@@ -2037,6 +2273,15 @@
 
       // 同期ボタン
       document.getElementById('sync-now-btn').addEventListener('click', syncAll);
+
+      // 診断ボタン
+      document.getElementById('diag-btn').addEventListener('click', runSyncDiag);
+      document.getElementById('diag-close').addEventListener('click', function() {
+        document.getElementById('diag-panel').style.display = 'none';
+      });
+      document.getElementById('diag-overlay').addEventListener('click', function() {
+        document.getElementById('diag-panel').style.display = 'none';
+      });
 
       // オンライン・オフライン検知
       window.addEventListener('online', function() {

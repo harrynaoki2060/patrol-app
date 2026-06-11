@@ -1,5 +1,5 @@
 // ============================================================
-//  安全パトロール Service Worker  v13
+//  安全パトロール Service Worker  v15
 //  対象: iPad Safari PWA 完全オフライン起動
 //
 //  ポイント:
@@ -10,7 +10,7 @@
 //  4. message  → 'SKIP_WAITING' で強制更新をサポート
 // ============================================================
 
-var CACHE_NAME   = 'patrol-v13';      // ← バージョンを上げるだけで旧キャッシュが消える
+var CACHE_NAME   = 'patrol-v15';      // ← バージョンを上げるだけで旧キャッシュが消える
 var CACHE_PREFIX = 'patrol-';        // このプレフィックスの旧キャッシュをすべて削除
 
 // オフライン緊急フォールバック HTML（キャッシュが何もない最終手段）
@@ -42,7 +42,7 @@ var OFFLINE_PAGE =
 // 1. Install: index.html を2キーでキャッシュ
 // ============================================================
 self.addEventListener('install', function(event) {
-  console.log('[SW v13] ▶ install 開始');
+  console.log('[SW v15] ▶ install 開始');
 
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -63,11 +63,11 @@ self.addEventListener('install', function(event) {
             ]);
           })
           .then(function() {
-            console.log('[SW v13] ✓ index.html を 2 キーでキャッシュ完了');
+            console.log('[SW v15] ✓ index.html を 2 キーでキャッシュ完了');
           })
           // index.html のキャッシュ失敗は致命的だが install は続行する
           .catch(function(e) {
-            console.error('[SW v13] ✗ index.html キャッシュ失敗:', e.message);
+            console.error('[SW v15] ✗ index.html キャッシュ失敗:', e.message);
           })
 
           // ── その他ファイル（1つ失敗しても継続）──
@@ -84,19 +84,19 @@ self.addEventListener('install', function(event) {
             return Promise.all(
               extras.map(function(url) {
                 return cache.add(url)
-                  .then(function() { console.log('[SW v13] ✓ cached:', url); })
-                  .catch(function(e) { console.warn('[SW v13] ✗ skip:', url, '-', e.message || e); });
+                  .then(function() { console.log('[SW v15] ✓ cached:', url); })
+                  .catch(function(e) { console.warn('[SW v15] ✗ skip:', url, '-', e.message || e); });
               })
             );
           });
       })
       .then(function() {
-        console.log('[SW v13] ▶ install 完了 → skipWaiting()');
+        console.log('[SW v15] ▶ install 完了 → skipWaiting()');
         // 旧 SW をすぐ置き換える（waiting をスキップ）
         return self.skipWaiting();
       })
       .catch(function(e) {
-        console.error('[SW v13] install エラー:', e);
+        console.error('[SW v15] install エラー:', e);
         // エラーがあっても skipWaiting は必ず呼ぶ
         return self.skipWaiting();
       })
@@ -107,7 +107,7 @@ self.addEventListener('install', function(event) {
 // 2. Activate: 旧キャッシュを全削除 → clients.claim()
 // ============================================================
 self.addEventListener('activate', function(event) {
-  console.log('[SW v13] ▶ activate 開始');
+  console.log('[SW v15] ▶ activate 開始');
 
   event.waitUntil(
     // 旧 patrol-v* キャッシュを全削除
@@ -117,25 +117,25 @@ self.addEventListener('activate', function(event) {
           // 'patrol-' で始まり、かつ現バージョン以外をすべて削除
           return k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME;
         });
-        console.log('[SW v13] 削除対象キャッシュ:', targets);
+        console.log('[SW v15] 削除対象キャッシュ:', targets);
         return Promise.all(
           targets.map(function(k) {
             return caches.delete(k)
-              .then(function(ok) { console.log('[SW v13] ✓ 削除:', k, ok); })
-              .catch(function(e) { console.warn('[SW v13] ✗ 削除失敗:', k, e); });
+              .then(function(ok) { console.log('[SW v15] ✓ 削除:', k, ok); })
+              .catch(function(e) { console.warn('[SW v15] ✗ 削除失敗:', k, e); });
           })
         );
       })
       .then(function() {
-        console.log('[SW v13] ▶ clients.claim()');
+        console.log('[SW v15] ▶ clients.claim()');
         // 開いているすべてのタブを即座に制御下に置く
         return self.clients.claim();
       })
       .then(function() {
-        console.log('[SW v13] ✓ activate 完了 / キャッシュ名:', CACHE_NAME);
+        console.log('[SW v15] ✓ activate 完了 / キャッシュ名:', CACHE_NAME);
       })
       .catch(function(e) {
-        console.error('[SW v13] activate エラー:', e);
+        console.error('[SW v15] activate エラー:', e);
         // エラーがあっても clients.claim は必ず呼ぶ
         return self.clients.claim().catch(function(){});
       })
@@ -147,7 +147,7 @@ self.addEventListener('activate', function(event) {
 // ============================================================
 self.addEventListener('message', function(event) {
   if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('[SW v13] message → SKIP_WAITING 受信 → skipWaiting()');
+    console.log('[SW v15] message → SKIP_WAITING 受信 → skipWaiting()');
     self.skipWaiting();
   }
 });
@@ -194,7 +194,7 @@ function handleNavigate(req) {
     return cache.match(req)
       .then(function(hit) {
         if (hit) {
-          console.log('[SW v13] navigate HIT(1) exact:', req.url);
+          console.log('[SW v15] navigate HIT(1) exact:', req.url);
           scheduleUpdate(cache, req);
           return hit;
         }
@@ -203,25 +203,25 @@ function handleNavigate(req) {
         return cache.match('./index.html')
           .then(function(hit2) {
             if (hit2) {
-              console.log('[SW v13] navigate HIT(2) ./index.html');
+              console.log('[SW v15] navigate HIT(2) ./index.html');
               return hit2;
             }
 
             // 【段3】ネットワーク取得 → キャッシュ更新
-            console.log('[SW v13] navigate MISS → network fetch');
+            console.log('[SW v15] navigate MISS → network fetch');
             return fetch(req, { cache: 'no-cache' })
               .then(function(res) {
                 if (res && res.ok) {
                   var c1 = res.clone(), c2 = res.clone();
                   cache.put(req,            c1);
                   cache.put('./index.html', c2);
-                  console.log('[SW v13] navigate network OK → 2キーキャッシュ更新');
+                  console.log('[SW v15] navigate network OK → 2キーキャッシュ更新');
                 }
                 return res;
               })
               .catch(function() {
                 // 完全オフライン かつ キャッシュ空 → 内蔵フォールバック HTML
-                console.warn('[SW v13] navigate OFFLINE → OFFLINE_PAGE 返却');
+                console.warn('[SW v15] navigate OFFLINE → OFFLINE_PAGE 返却');
                 return new Response(OFFLINE_PAGE, {
                   status: 200,
                   headers: { 'Content-Type': 'text/html; charset=utf-8' }
