@@ -265,6 +265,39 @@
       font-family: inherit; flex-shrink: 0; touch-action: manipulation;
     }
 
+    /* 役所提出PDFボタン */
+    .gov-pdf-btn {
+      width: 100%; padding: 16px; margin-top: 10px;
+      background: #7c3aed; color: white;
+      border: none; border-radius: 12px;
+      font-size: 16px; font-weight: 700;
+      cursor: pointer; font-family: inherit;
+      touch-action: manipulation; letter-spacing: 0.5px;
+    }
+    .gov-pdf-btn:active { background: #5b21b6; }
+    .history-gov-pdf {
+      padding: 8px 11px; background: #ede9fe; border: none; border-radius: 7px;
+      color: #7c3aed; font-size: 12px; font-weight: 700; cursor: pointer;
+      font-family: inherit; flex-shrink: 0; touch-action: manipulation;
+    }
+
+    /* 写真カード操作バー（⬅ → ✕） */
+    .photo-ctrl-bar {
+      position: absolute; top: 4px; right: 4px;
+      display: flex; gap: 3px;
+    }
+    .photo-ctrl-btn {
+      width: 26px; height: 26px;
+      background: rgba(0,0,0,0.65); color: white;
+      border: none; border-radius: 50%;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-family: inherit; touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .photo-ctrl-btn:disabled { opacity: 0.25; pointer-events: none; }
+    .photo-ctrl-del { background: rgba(185,28,28,0.82); }
+
     /* ===== iOS インストール案内 ===== */
     .ios-hint {
       display: flex; align-items: flex-start; gap: 10px;
@@ -617,6 +650,7 @@
         <div class="section-title">📊 エクスポート</div>
         <button type="button" class="export-btn" id="export-btn">📥　Excel で出力（.xlsx）</button>
         <button type="button" class="pdf-btn"    id="pdf-btn">🖨　PDF で出力（提出用レポート）</button>
+        <button type="button" class="gov-pdf-btn" id="gov-pdf-btn">📄　役所提出用 PDF（協力業者名なし）</button>
       </div>
 
     </div><!-- /form-view -->
@@ -1004,6 +1038,135 @@
         + '</body></html>';
     }
 
+    // ============================================================
+    //  役所提出用レポート HTML（協力業者名なし・写真のみ2ページ目以降）
+    // ============================================================
+    function buildGovReportHTML(data) {
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      var date      = data.date        || '―';
+      var inspector = data.inspector   || '―';
+      var project   = data.projectName || '―';
+
+      function miniHd() {
+        return '<div class="mini-hd">'
+          + '<span class="mh-title">安全パトロール報告書</span>'
+          + '<span class="mh-sep">｜</span><span>' + esc(project) + '</span>'
+          + '<span class="mh-sep">｜</span><span>' + esc(date) + '</span>'
+          + '</div>';
+      }
+
+      // P1: チェックリスト（協力業者・工期なし）
+      var rows = '';
+      CATS.forEach(function(cat) {
+        cat.items.forEach(function(item, idx) {
+          var val  = String((data.checks || {})[item.id] || '―');
+          var jCls = val === 'OK' ? ' ok' : val === 'NG' ? ' ng' : val === '注意' ? ' att' : '';
+          rows += '<tr>';
+          if (idx === 0) rows += '<td class="cat" rowspan="' + cat.items.length + '">' + esc(cat.name) + '</td>';
+          rows += '<td class="item"><span class="inum">' + item.id + '.</span> ' + esc(item.text) + '</td>';
+          rows += '<td class="judge' + jCls + '">' + esc(val) + '</td>';
+          rows += '</tr>';
+        });
+      });
+
+      var page1 = '<div class="page">'
+        + '<div class="rpt-title">安全パトロール報告書</div>'
+        + '<div class="meta">'
+        + '<div class="mi"><span class="ml">点 検 日</span><span class="mv">' + esc(date) + '</span></div>'
+        + '<div class="mi"><span class="ml">パトロール者</span><span class="mv">' + esc(inspector) + '</span></div>'
+        + '<div class="mi full"><span class="ml">工事名称</span><span class="mv">' + esc(project) + '</span></div>'
+        + '</div>'
+        + '<div class="stitle">✅ 安全チェック一覧</div>'
+        + '<table><thead><tr>'
+        + '<th style="width:16%">カテゴリ</th><th style="width:72%">チェック項目</th><th style="width:12%">判定</th>'
+        + '</tr></thead><tbody>' + rows + '</tbody></table>'
+        + '</div>';
+
+      // P2+: 写真のみ（3枚/ページ）
+      var pArr = data.photos || [];
+      var photoPages = '';
+      if (pArr.length === 0) {
+        photoPages = '<div class="page page-break">' + miniHd()
+          + '<div class="stitle">📷 状況写真</div>'
+          + '<p class="empty">写真なし</p></div>';
+      } else {
+        for (var p = 0; p < pArr.length; p += 3) {
+          photoPages += '<div class="page page-break">' + miniHd()
+            + '<div class="stitle">📷 状況写真</div>'
+            + '<div class="photo-col">';
+          for (var q = p; q < Math.min(p + 3, pArr.length); q++) {
+            var pObj = (typeof pArr[q] === 'string') ? { dataUrl: pArr[q], name: '' } : pArr[q];
+            var pCap = (pObj.name || '') ? pObj.name : ('写真 ' + (q + 1));
+            photoPages += '<div class="pitem">'
+              + '<img src="' + (pObj.dataUrl || '') + '" alt="写真' + (q+1) + '">'
+              + '<div class="pcap">' + esc(pCap) + '</div>'
+              + '</div>';
+          }
+          photoPages += '</div></div>';
+        }
+      }
+
+      var css = [
+        '@page{size:A4 portrait;margin:15mm}',
+        '*{box-sizing:border-box;margin:0;padding:0}',
+        'body{font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:9pt;color:#000;background:#fff}',
+        '.pbar{position:fixed;top:0;left:0;right:0;background:#7c3aed;padding:10px 16px;display:flex;align-items:center;gap:12px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
+        '.pbtn{padding:9px 20px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation}',
+        '.pnote{font-size:12px;color:rgba(255,255,255,.9)}',
+        '.pcls{margin-left:auto;padding:9px 14px;background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;touch-action:manipulation}',
+        '@media print{.pbar{display:none!important}}',
+        '.wrap{padding-top:54px}',
+        '@media print{.wrap{padding-top:0}}',
+        '.page{max-width:800px;margin:0 auto;padding:6px}',
+        '@media screen{.page{margin-bottom:40px;border-bottom:2px dashed #e5e7eb;padding-bottom:24px}}',
+        '.page-break{break-before:page;page-break-before:always}',
+        '.rpt-title{font-size:17pt;font-weight:800;text-align:center;color:#1e40af;letter-spacing:1.5pt;margin-bottom:10pt}',
+        '.meta{display:grid;grid-template-columns:1fr 1fr;gap:5pt 20pt;padding-bottom:9pt;border-bottom:2.5pt solid #1e40af;margin-bottom:12pt}',
+        '.mi{display:flex;gap:6pt;font-size:9pt;align-items:baseline}',
+        '.ml{font-weight:700;min-width:60pt;color:#6b7280;flex-shrink:0}',
+        '.mv{font-weight:600;color:#111}',
+        '.full{grid-column:1/-1}',
+        '.mini-hd{display:flex;align-items:center;gap:6pt;font-size:8pt;color:#6b7280;border-bottom:1pt solid #d1d5db;padding-bottom:5pt;margin-bottom:10pt}',
+        '.mh-title{font-weight:700;color:#1e40af}',
+        '.mh-sep{color:#d1d5db}',
+        '.stitle{font-size:10pt;font-weight:700;color:#fff;background:#1e40af;padding:4pt 9pt;margin-bottom:7pt;border-radius:3pt}',
+        'table{width:100%;border-collapse:collapse;font-size:7.5pt}',
+        'th{background:#dbeafe;border:1px solid #6b7280;padding:4pt 5pt;text-align:center;font-weight:700;font-size:8pt}',
+        'td{border:1px solid #9ca3af;padding:3pt 5pt;vertical-align:top}',
+        '.cat{background:#f3f4f6;font-weight:700;text-align:center;vertical-align:middle;width:16%;font-size:7pt;line-height:1.5}',
+        '.item{width:72%;line-height:1.6}',
+        '.inum{font-weight:700;color:#1e40af;margin-right:2pt}',
+        '.judge{width:12%;text-align:center;font-weight:700;vertical-align:middle;font-size:8.5pt}',
+        '.ok{color:#16a34a}',
+        '.ng{color:#dc2626;background:#fee2e2}',
+        '.att{color:#d97706;background:#fef3c7}',
+        '.empty{font-size:9pt;color:#9ca3af;font-style:italic;padding:3pt 0}',
+        '.photo-col{display:block}',
+        '.pitem{display:block;height:79mm;overflow:hidden;margin-bottom:2mm;break-inside:avoid;page-break-inside:avoid}',
+        '.pitem:last-child{margin-bottom:0}',
+        '.pitem img{display:block;width:100%;height:71mm;object-fit:contain;background-color:#f3f4f6;border:1pt solid #e5e7eb;border-radius:3pt}',
+        '.pcap{height:8mm;line-height:8mm;text-align:center;font-size:8pt;color:#374151;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 4pt}'
+      ].join('');
+
+      return '<!DOCTYPE html><html lang="ja"><head>'
+        + '<meta charset="UTF-8">'
+        + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + '<title>安全パトロール報告書（役所提出用） ' + esc(date) + '</title>'
+        + '<style>' + css + '</style>'
+        + '</head><body>'
+        + '<div class="pbar">'
+        + '<button class="pbtn" onclick="window.print()">🖨　PDFとして保存 / 印刷</button>'
+        + '<span class="pnote">役所提出用（協力業者名なし）</span>'
+        + '<button class="pcls" onclick="window.close()">✕ 閉じる</button>'
+        + '</div>'
+        + '<div class="wrap">' + page1 + photoPages + '</div>'
+        + '</body></html>';
+    }
+
     // フォームの現在内容をPDF出力
     function exportPDF() {
       var data = {
@@ -1038,6 +1201,33 @@
         return;
       }
       win.document.write(buildReportHTML(r));
+      win.document.close();
+    }
+
+    function exportGovPDF() {
+      var data = {
+        date:        document.getElementById('f-date').value      || '',
+        inspector:   document.getElementById('f-inspector').value || '',
+        projectName: document.getElementById('f-project').value   || '',
+        checks:      checks,
+        photos:      photos.slice()
+      };
+      var win = window.open('', '_blank');
+      if (!win) {
+        alert('ポップアップがブロックされました。\nブラウザの設定でこのサイトのポップアップを許可してください。');
+        return;
+      }
+      win.document.write(buildGovReportHTML(data));
+      win.document.close();
+    }
+
+    function exportGovPDFFromRecord(r) {
+      var win = window.open('', '_blank');
+      if (!win) {
+        alert('ポップアップがブロックされました。\nブラウザの設定でこのサイトのポップアップを許可してください。');
+        return;
+      }
+      win.document.write(buildGovReportHTML(r));
       win.document.close();
     }
 
@@ -1315,14 +1505,27 @@
         img.alt = '写真' + (i + 1);
         thumb.appendChild(img);
 
+        var ctrlBar = document.createElement('div');
+        ctrlBar.className = 'photo-ctrl-bar';
+
+        var mvL = document.createElement('button');
+        mvL.type = 'button'; mvL.className = 'photo-ctrl-btn'; mvL.textContent = '⬅';
+        mvL.disabled = (i === 0);
+        (function(index){ mvL.addEventListener('click', function(){ movePhoto(index, -1); }); })(i);
+        ctrlBar.appendChild(mvL);
+
+        var mvR = document.createElement('button');
+        mvR.type = 'button'; mvR.className = 'photo-ctrl-btn'; mvR.textContent = '➡';
+        mvR.disabled = (i === photos.length - 1);
+        (function(index){ mvR.addEventListener('click', function(){ movePhoto(index, 1); }); })(i);
+        ctrlBar.appendChild(mvR);
+
         var delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'photo-del';
-        delBtn.textContent = '×';
-        (function(index) {
-          delBtn.addEventListener('click', function() { delPhoto(index); });
-        })(i);
-        thumb.appendChild(delBtn);
+        delBtn.type = 'button'; delBtn.className = 'photo-ctrl-btn photo-ctrl-del'; delBtn.textContent = '✕';
+        (function(index){ delBtn.addEventListener('click', function(){ delPhoto(index); }); })(i);
+        ctrlBar.appendChild(delBtn);
+
+        thumb.appendChild(ctrlBar);
         card.appendChild(thumb);
 
         // 写真名入力欄
@@ -1344,6 +1547,14 @@
 
         grid.appendChild(card);
       });
+    }
+
+    function movePhoto(idx, dir) {
+      var to = idx + dir;
+      if (to < 0 || to >= photos.length) return;
+      var tmp = photos[idx]; photos[idx] = photos[to]; photos[to] = tmp;
+      refreshPhotos();
+      markDirty();
     }
 
     // ============================================================
@@ -1595,6 +1806,15 @@
           pdfBtn.addEventListener('click', function() { exportPDFFromRecord(rec); });
         })(r);
         row.appendChild(pdfBtn);
+
+        var govBtn = document.createElement('button');
+        govBtn.type = 'button';
+        govBtn.className = 'history-gov-pdf';
+        govBtn.textContent = '📄役所PDF';
+        (function(rec) {
+          govBtn.addEventListener('click', function() { exportGovPDFFromRecord(rec); });
+        })(r);
+        row.appendChild(govBtn);
 
         var xlsxBtn = document.createElement('button');
         xlsxBtn.type = 'button';
@@ -2270,6 +2490,7 @@
       document.getElementById('f-rate').addEventListener('input', markDirty);
       document.getElementById('export-btn').addEventListener('click', exportExcel);
       document.getElementById('pdf-btn').addEventListener('click', exportPDF);
+      document.getElementById('gov-pdf-btn').addEventListener('click', exportGovPDF);
 
       // 同期ボタン
       document.getElementById('sync-now-btn').addEventListener('click', syncAll);
