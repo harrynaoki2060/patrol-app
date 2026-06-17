@@ -1047,9 +1047,10 @@
           .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       }
 
-      var date      = data.date        || '―';
-      var inspector = data.inspector   || '―';
-      var project   = data.projectName || '―';
+      var date       = data.date        || '―';
+      var inspector  = data.inspector   || '―';
+      var project    = data.projectName || '―';
+      var contractor = data.contractor  || '';
 
       function miniHd() {
         return '<div class="mini-hd">'
@@ -1074,6 +1075,7 @@
       });
 
       var page1 = '<div class="page">'
+        + (contractor ? '<div class="co">' + esc(contractor) + '</div>' : '')
         + '<div class="rpt-title">安全パトロール報告書</div>'
         + '<div class="meta">'
         + '<div class="mi"><span class="ml">点 検 日</span><span class="mv">' + esc(date) + '</span></div>'
@@ -1206,9 +1208,10 @@
 
     function exportGovPDF() {
       var data = {
-        date:        document.getElementById('f-date').value      || '',
-        inspector:   document.getElementById('f-inspector').value || '',
-        projectName: document.getElementById('f-project').value   || '',
+        date:        document.getElementById('f-date').value        || '',
+        inspector:   document.getElementById('f-inspector').value   || '',
+        projectName: document.getElementById('f-project').value     || '',
+        contractor:  document.getElementById('f-contractor').value  || '',
         checks:      checks,
         photos:      photos.slice()
       };
