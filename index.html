@@ -490,11 +490,6 @@
         <label class="modal-label">所属・部署（任意）</label>
         <input type="text" id="s-dept" class="modal-input" placeholder="部署名を入力">
       </div>
-      <div class="modal-field">
-        <label class="modal-label">グループID（同期グループ）</label>
-        <input type="text" id="s-groupid" class="modal-input" placeholder="例: nishino-company" autocomplete="off" autocapitalize="none">
-        <div style="font-size:11px;color:#9ca3af;margin-top:4px">同じグループIDの端末が同期されます（英数字・ハイフン）</div>
-      </div>
       <div class="modal-actions">
         <button type="button" id="s-cancel" class="modal-cancel">キャンセル</button>
         <button type="button" id="s-save"   class="modal-save">💾　保存する</button>
@@ -720,7 +715,6 @@
     //  状態
     // ============================================================
     var APP_VERSION = '1.7.0';
-    var groupId = (localStorage.getItem('patrolGroupId') || 'default').replace(/[^a-zA-Z0-9\-_]/g, '') || 'default';
     var checks  = {};
     var photos  = [];
     var records = [];
@@ -1725,7 +1719,7 @@
       });
 
       // サーバーからも削除（失敗しても無視）
-      fetch('/api/records/' + id + '?groupId=' + encodeURIComponent(groupId), { method: 'DELETE' }).catch(function() {});
+      fetch('/api/records/' + id, { method: 'DELETE' }).catch(function() {});
     }
 
     // ============================================================
@@ -2189,7 +2183,7 @@
       var t0   = Date.now();
       var ctrl = new AbortController();
       var timer = setTimeout(function() { ctrl.abort(); }, 30000); // 30s
-      fetch('/api/records?groupId=' + encodeURIComponent(groupId), {
+      fetch('/api/records', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    jsonStr,
@@ -2269,7 +2263,6 @@
         var uaShort = ua.length > 100 ? ua.slice(0, 100) + '…' : ua;
         html += '<div class="diag-sec"><div class="diag-sec-ttl">🖥️ 端末・環境情報</div>';
         html += row('アプリ Version', APP_VERSION);
-        html += row('グループID', groupId, groupId === 'default');
         html += row('ブラウザ (UA)',  uaShort);
         html += row('言語 / オンライン', (navigator.language || '―') + '　' + (navigator.onLine ? '🟢 オンライン' : '🔴 オフライン'));
         html += '</div>';
@@ -2292,8 +2285,7 @@
         html += '</div>';
 
         html += '<div class="diag-sec"><div class="diag-sec-ttl">📊 サマリ</div>';
-        html += row('ローカルレコード数', records.length + ' 件');
-        html += '<div class="diag-row"><span class="diag-label">サーバーレコード数</span><span id="diag-srv-count" class="diag-val diag-ok">取得中…</span></div>';
+        html += row('全レコード数',          records.length+' 件');
         html += row('未同期レコード数',      unsynced.length+' 件', unsynced.length>0);
         html += row('records 全体サイズ',   fmtMB(allBytes));
         html += row('最大レコードサイズ',   fmtMB(maxRecBytes),   maxRecBytes>8*1024*1024);
@@ -2343,17 +2335,6 @@
 
         body.innerHTML = html;
 
-        // サーバーレコード数を非同期で取得
-        fetch('/api/records?groupId=' + encodeURIComponent(groupId))
-          .then(function(r) { return r.ok ? r.json() : []; })
-          .then(function(srvRecs) {
-            var el = document.getElementById('diag-srv-count');
-            if (el) el.textContent = Array.isArray(srvRecs) ? srvRecs.length + ' 件' : '取得失敗';
-          }).catch(function() {
-            var el = document.getElementById('diag-srv-count');
-            if (el) el.textContent = 'エラー';
-          });
-
         // SW キャッシュ名・登録状態を非同期で埋める
         if ('caches' in window) {
           caches.keys().then(function(keys) {
@@ -2388,229 +2369,104 @@
       }, 30);
     }
 
-    // ============================================================
-    //  IndexedDB 全件クリア→上書き保存
-    // ============================================================
-    function saveAllToIDB(recs, cb) {
-      openDB(function(err, d) {
-        if (err) { if (cb) cb(err); return; }
-        var tx    = d.transaction('records', 'readwrite');
-        var store = tx.objectStore('records');
-        store.clear();
-        recs.forEach(function(r) { store.put(r); });
-        tx.oncomplete = function() {
-          records = recs.slice().sort(function(a, b) { return b.id - a.id; });
-          if (cb) cb(null);
-        };
-        tx.onerror = function(e) { if (cb) cb(e.target.error); };
-      });
-    }
-
-    // ============================================================
-    //  サーバーから全件取得 → ローカルと写真マージ → IDB 上書き
-    //  （ページ起動時・オンライン復帰時に使用）
-    // ============================================================
-    function fetchAndMerge(cbDone) {
-      var t0 = Date.now();
-      fetch('/api/records?groupId=' + encodeURIComponent(groupId))
-        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function(srvRecs) {
-          if (!Array.isArray(srvRecs)) { refreshSyncStatus(); if (cbDone) cbDone(); return; }
-          syncStats.lastRcvCount = srvRecs.length;
-          syncStats.lastApiMs    = Date.now() - t0;
-          if (!syncStats.lastSyncAt) syncStats.lastSyncAt = jstNowStr();
-          console.log('[sync] fetchAndMerge 取得件数:', srvRecs.length, (Date.now() - t0) + 'ms');
-
-          // ローカル写真を保持（サーバーは text-only）
-          var localPhotoMap = {};
-          records.forEach(function(r) { if (r.photos && r.photos.length) localPhotoMap[r.id] = r.photos; });
-
-          var merged = srvRecs.map(function(sr) {
-            sr.synced = true;
-            sr.photos = localPhotoMap[sr.id] || [];
-            return sr;
-          });
-
-          saveAllToIDB(merged, function() {
-            refreshRecCount();
-            refreshSyncStatus();
-            renderHistory();
-            if (cbDone) cbDone();
-          });
-        })
-        .catch(function(e) {
-          console.warn('[sync] fetchAndMerge 失敗:', e.message);
-          syncStats.lastFailReason = e.message || '取得失敗';
-          refreshSyncStatus();
-          if (cbDone) cbDone(e);
-        });
-    }
-
-    // ============================================================
-    //  全同期 (同期ボタン)
-    //  ① 未同期レコードをテキストのみ送信
-    //  ② 写真を1枚ずつアップロード
-    //  ③ サーバー全件取得 → IDB上書き → 画面更新
-    // ============================================================
     function syncAll(silent) {
       if (!navigator.onLine) {
-        if (!silent) showToast('オフラインです。WiFi接続後に再試行してください');
+        if (!silent) showToast('オフラインです。WiFi接続後に同期してください');
         return;
       }
-
-      var btn      = document.getElementById('sync-now-btn');
       var unsynced = records.filter(function(r) { return !r.synced; });
+      if (!unsynced.length) { if (!silent) showToast('同期済みです ✓'); return; }
 
-      if (!unsynced.length) {
-        // 未同期なくても取得だけ実施
-        fetchAndMerge(function() { if (!silent) showToast('同期済みです ✓ （取得完了）'); });
-        return;
-      }
+      var btn   = document.getElementById('sync-now-btn');
+      var done  = 0;
+      var failed = 0;
+      var total = unsynced.length;
+      if (btn) { btn.disabled = true; btn.textContent = '同期中 0/' + total; }
 
-      if (btn) { btn.disabled = true; btn.textContent = '同期中…'; }
-
-      var sentCount  = 0;
-      var failCount  = 0;
-      var photosSent = 0;
-
-      // ─── Phase 1: テキストレコードをアップロード ─────────────
-      function uploadRecords(idx) {
-        if (idx >= unsynced.length) {
-          // Phase 3: サーバーから全件取得
-          fetchAllFromServer();
-          return;
-        }
-
-        var r = unsynced[idx];
-        if (btn) btn.textContent = 'テキスト送信 ' + (idx + 1) + '/' + unsynced.length;
-
-        // photos を strip
-        var textRec = {};
-        for (var k in r) { if (k !== 'photos') textRec[k] = r[k]; }
-        textRec.photos     = [];
-        textRec.photoCount = (r.photos || []).length;
-        textRec.synced     = true;
-        textRec.groupId    = groupId;
-
-        var jsonStr = JSON.stringify(textRec);
-        var bytes   = new Blob([jsonStr]).size;
-        if (bytes > 8 * 1024 * 1024) {
-          showToast('レコードが8MB超のためスキップ: ' + (bytes / 1024 / 1024).toFixed(1) + 'MB');
-          syncStats.lastFailReason = '8MB超スキップ (id=' + r.id + ')';
-          failCount++;
-          uploadRecords(idx + 1);
-          return;
-        }
-
-        var t0   = Date.now();
-        var ctrl = new AbortController();
-        var timer = setTimeout(function() { ctrl.abort(); }, 30000);
-
-        fetch('/api/records?groupId=' + encodeURIComponent(groupId), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: jsonStr, signal: ctrl.signal
-        })
-        .then(function(res) {
-          clearTimeout(timer);
-          syncStats.lastApiMs = Date.now() - t0;
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
-        })
-        .then(function() {
-          sentCount++;
-          // Phase 2: この record の写真をアップロード
-          uploadPhotos(r, 0, function() { uploadRecords(idx + 1); });
-        })
-        .catch(function(e) {
-          clearTimeout(timer);
-          syncStats.lastApiMs = Date.now() - t0;
-          var reason = (e && e.name === 'AbortError') ? 'タイムアウト' : (e && e.message || '不明');
-          syncStats.lastFailReason = reason + ' (id=' + r.id + ')';
-          console.warn('[sync] テキスト送信失敗 id=' + r.id, reason);
-          failCount++;
-          uploadRecords(idx + 1);
-        });
-      }
-
-      // ─── Phase 2: 写真を1枚ずつアップロード ─────────────────
-      function uploadPhotos(record, photoIdx, done) {
-        var pArr = record.photos || [];
-        if (photoIdx >= pArr.length) { done(); return; }
-
-        var p = typeof pArr[photoIdx] === 'string'
-          ? { dataUrl: pArr[photoIdx], name: '', takenAt: '' }
-          : pArr[photoIdx];
-
-        if (btn) btn.textContent = '写真アップ ' + (photoIdx + 1) + '/' + pArr.length;
-
-        var pStr  = JSON.stringify({ dataUrl: p.dataUrl || '', name: p.name || '', takenAt: p.takenAt || '' });
-        var pBytes = new Blob([pStr]).size;
-        if (pBytes > 2 * 1024 * 1024) {
-          console.warn('[sync] 写真スキップ (2MB超) id=' + record.id + ' idx=' + photoIdx);
-          uploadPhotos(record, photoIdx + 1, done);
-          return;
-        }
-
-        var url  = '/api/photo?groupId=' + encodeURIComponent(groupId) + '&id=' + record.id + '&idx=' + photoIdx;
-        var ctrl = new AbortController();
-        var timer = setTimeout(function() { ctrl.abort(); }, 30000);
-
-        fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: pStr, signal: ctrl.signal })
-        .then(function(res) {
-          clearTimeout(timer);
-          if (res.ok) photosSent++;
-          uploadPhotos(record, photoIdx + 1, done);
-        })
-        .catch(function() {
-          clearTimeout(timer);
-          uploadPhotos(record, photoIdx + 1, done);
-        });
-      }
-
-      // ─── Phase 3: サーバーから全件取得 → IDB 上書き ──────────
-      function fetchAllFromServer() {
-        if (btn) btn.textContent = 'サーバー取得中…';
-        var t0 = Date.now();
-        fetch('/api/records?groupId=' + encodeURIComponent(groupId))
-        .then(function(res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-        .then(function(srvRecs) {
-          if (!Array.isArray(srvRecs)) throw new Error('レスポンスが配列でない');
-          syncStats.lastRcvCount = srvRecs.length;
-          syncStats.lastApiMs    = Date.now() - t0;
-
-          // ローカル写真を保持
-          var localPhotoMap = {};
-          records.forEach(function(r) { if (r.photos && r.photos.length) localPhotoMap[r.id] = r.photos; });
-
-          var merged = srvRecs.map(function(sr) {
-            sr.synced = true;
-            sr.photos = localPhotoMap[sr.id] || [];
-            return sr;
-          });
-
-          saveAllToIDB(merged, function() {
-            syncStats.lastSyncAt    = jstNowStr();
-            syncStats.lastSentCount = sentCount;
-
-            var msg = sentCount + '件送信・' + srvRecs.length + '件取得 ✓';
-            if (failCount)   msg += '（' + failCount + '件失敗）';
-            if (photosSent)  msg += '　写真' + photosSent + '枚';
-            if (!silent) showToast(msg);
-
-            if (btn) { btn.disabled = false; btn.textContent = '☁ 今すぐ同期'; }
-            refreshRecCount();
-            refreshSyncStatus();
-            renderHistory();
-          });
-        })
-        .catch(function(e) {
-          syncStats.lastFailReason = e.message || 'サーバー取得失敗';
-          showToast('サーバー取得失敗: ' + (e.message || ''));
+      function next(idx) {
+        if (idx >= total) {
           if (btn) { btn.disabled = false; btn.textContent = '☁ 今すぐ同期'; }
+          syncStats.lastSentCount = done;
+          syncStats.lastSyncAt    = jstNowStr();
+          var msg = done + '件同期しました ✓';
+          if (failed) { msg += '（' + failed + '件失敗）'; }
+          showToast(msg);
+          refreshSyncStatus();
+          renderHistory();
+          fetchAndMerge(); // 同期完了後に他端末データを必ず取得
+          return;
+        }
+        var r = unsynced[idx];
+        syncRecord(r, function(ok) {
+          if (ok) {
+            r.synced = true;
+            dbPut('records', r, null);
+            for (var i = 0; i < records.length; i++) {
+              if (records[i].id === r.id) { records[i].synced = true; break; }
+            }
+            done++;
+          } else {
+            failed++;
+          }
+          if (btn) { btn.textContent = '同期中 ' + (done + failed) + '/' + total; }
+          next(idx + 1);
         });
       }
+      next(0);
+    }
 
-      uploadRecords(0);
+    // サーバーのレコードとローカルをマージ
+    function fetchAndMerge() {
+      var t0 = Date.now();
+      fetch('/api/records')
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(srvRecs) {
+          if (!Array.isArray(srvRecs)) return;
+          syncStats.lastRcvCount = srvRecs.length;
+          if (!syncStats.lastSyncAt) syncStats.lastSyncAt = jstNowStr();
+          console.log('[sync] fetchAndMerge 取得件数:', srvRecs.length, (Date.now()-t0)+'ms');
+          var localMap = {};
+          records.forEach(function(r) { localMap[r.id] = r; });
+
+          var toAdd = [];
+          srvRecs.forEach(function(sr) {
+            if (localMap[sr.id]) {
+              var local = localMap[sr.id];
+              if (!local.synced) {
+                local.synced = true;
+                dbPut('records', local, null);
+              }
+              if ((!local.photos || local.photos.length === 0) &&
+                  sr.photos && sr.photos.length > 0) {
+                local.photos = sr.photos;
+                dbPut('records', local, null);
+              }
+            } else {
+              // ローカルにない → 追加
+              sr.synced = true;
+              if (!sr.photos) sr.photos = [];
+              localMap[sr.id] = sr;
+              toAdd.push(sr);
+            }
+          });
+
+          var idx = 0;
+          function addNext() {
+            if (idx >= toAdd.length) {
+              if (toAdd.length) {
+                records = Object.keys(localMap).map(function(k) { return localMap[k]; })
+                  .sort(function(a, b) { return b.id - a.id; });
+                refreshRecCount();
+                renderHistory(); // 他端末からのレコードを画面に反映
+              }
+              refreshSyncStatus();
+              return;
+            }
+            dbPut('records', toAdd[idx], function() { idx++; addNext(); });
+          }
+          addNext();
+        })
+        .catch(function() { refreshSyncStatus(); });
     }
 
     // ============================================================
@@ -2640,7 +2496,6 @@
     function openSettings() {
       document.getElementById('s-username').value = userSettings.name || '';
       document.getElementById('s-dept').value     = userSettings.dept || '';
-      document.getElementById('s-groupid').value  = groupId;
       document.getElementById('settings-modal').style.display = 'flex';
       setTimeout(function() { document.getElementById('s-username').focus(); }, 50);
     }
@@ -2659,12 +2514,6 @@
         onField();
       }
       applyUserSettings();
-      var newGroupId = document.getElementById('s-groupid').value.trim().replace(/[^a-zA-Z0-9\-_]/g, '') || 'default';
-      if (newGroupId !== groupId) {
-        groupId = newGroupId;
-        localStorage.setItem('patrolGroupId', groupId);
-        showToast('グループIDを変更しました: ' + groupId);
-      }
       closeSettings();
       showToast('設定を保存しました ✓');
     }
@@ -2761,8 +2610,9 @@
       window.addEventListener('online', function() {
         updateOnlineStatus();
         showToast('🟢 オンライン接続しました');
-        // オンライン復帰時: サーバーから最新データを取得
+        // オンライン復帰時: 未同期データをアップロード → サーバーから新着を取得
         setTimeout(function() {
+          syncAll(true);   // silent=true: 「同期済みです」トーストを抑制
           fetchAndMerge();
         }, 1000); // 接続が安定するまで少し待つ
       });
@@ -2802,7 +2652,7 @@
       openDB(function(err) {
         if (err) {
           // IndexedDB 使えない場合 → サーバーから直接取得
-          fetch('/api/records?groupId=' + encodeURIComponent(groupId))
+          fetch('/api/records')
             .then(function(r) { if (!r.ok) throw new Error(); return r.json(); })
             .then(function(data) { records = Array.isArray(data) ? data : []; refreshRecCount(); refreshSyncStatus(); })
             .catch(function() { refreshRecCount(); refreshSyncStatus(); });
