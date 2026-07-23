@@ -1,6 +1,10 @@
 // Google Apps Script Web App
 // 安全パトロールアプリ - 同期バックエンド
 // APIs used: SpreadsheetApp, DriveApp, PropertiesService, ContentService, Utilities
+//
+// IMPORTANT: This script must be created from inside a Google Spreadsheet.
+//   Spreadsheet menu > Extensions > Apps Script
+// Do NOT create this as a standalone script at script.google.com.
 
 var SHEET_RECORDS = 'Records';
 var SHEET_LOG     = 'SyncLog';
@@ -14,7 +18,7 @@ var COL_COUNT     = 17;
 function doGet(e) {
   try {
     if (!checkKey(e)) {
-      return jsonOut({ error: 'Forbidden', code: 403 });
+      return jsonOut({ error: 'Forbidden: invalid API key', code: 403 });
     }
     var action = getParam(e, 'action');
     if (action === 'health')  return onHealth();
@@ -30,7 +34,7 @@ function doGet(e) {
 function doPost(e) {
   try {
     if (!checkKey(e)) {
-      return jsonOut({ error: 'Forbidden', code: 403 });
+      return jsonOut({ error: 'Forbidden: invalid API key', code: 403 });
     }
     var body   = JSON.parse(e.postData.contents);
     var action = body.action || '';
@@ -50,21 +54,21 @@ function doPost(e) {
 
 function checkKey(e) {
   var stored = PropertiesService.getScriptProperties().getProperty('API_KEY');
-  if (!stored) return true; // no key set = open (initial setup)
+  if (!stored) return true; // no key stored = open (before setupApiKey is run)
   var key = getParam(e, 'key') || '';
   return key === stored;
 }
 
 // ------------------------------------
-// Health check
+// Health
 // ------------------------------------
 
 function onHealth() {
-  var props = PropertiesService.getScriptProperties();
-  var ssId  = props.getProperty('SPREADSHEET_ID');
+  var ss = getSS();
   return jsonOut({
     ok: true,
-    spreadsheetId: ssId || 'not set',
+    spreadsheetId: ss.getId(),
+    spreadsheetName: ss.getName(),
     timestamp: jstNow()
   });
 }
@@ -143,11 +147,11 @@ function onDelete(body) {
 // ------------------------------------
 
 function onSavePhoto(body) {
-  if (!body.recordId)  return jsonOut({ error: 'recordId required', code: 400 });
-  if (!body.base64)    return jsonOut({ error: 'base64 required',   code: 400 });
-  if (!body.name)      return jsonOut({ error: 'name required',     code: 400 });
-  if (!body.mimeType)  return jsonOut({ error: 'mimeType required', code: 400 });
-  if (!body.yearMonth) return jsonOut({ error: 'yearMonth required',code: 400 });
+  if (!body.recordId)  return jsonOut({ error: 'recordId required',  code: 400 });
+  if (!body.base64)    return jsonOut({ error: 'base64 required',    code: 400 });
+  if (!body.name)      return jsonOut({ error: 'name required',      code: 400 });
+  if (!body.mimeType)  return jsonOut({ error: 'mimeType required',  code: 400 });
+  if (!body.yearMonth) return jsonOut({ error: 'yearMonth required', code: 400 });
 
   var b64     = body.base64.replace(/^data:[^,]+,/, '');
   var decoded = Utilities.base64Decode(b64);
@@ -193,13 +197,16 @@ function onLog(body) {
 // ------------------------------------
 
 function getSS() {
-  var props = PropertiesService.getScriptProperties();
-  var ssId  = props.getProperty('SPREADSHEET_ID');
-  if (ssId) {
-    return SpreadsheetApp.openById(ssId);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    throw new Error(
+      'Spreadsheet not found. ' +
+      'This script must be created from inside a Google Spreadsheet: ' +
+      'Spreadsheet menu > Extensions > Apps Script. ' +
+      'Do not use script.google.com to create a standalone script.'
+    );
   }
-  // Fallback: bound script (created from inside a spreadsheet)
-  return SpreadsheetApp.getActiveSpreadsheet();
+  return ss;
 }
 
 function getSheet(name) {
@@ -302,7 +309,6 @@ function recordToRow(record, now) {
 // ------------------------------------
 
 function getOrCreateFolder(yearMonth) {
-  // yearMonth = 'YYYY/MM'
   var parts = yearMonth.split('/');
   var year  = parts[0];
   var month = parts[1];
@@ -349,27 +355,29 @@ function jsonOut(data) {
 }
 
 // ------------------------------------
-// One-time setup (run manually from editor)
+// Setup functions (run once from editor)
 // ------------------------------------
 
-// Step 1: Run this FIRST to register the spreadsheet ID.
-// Replace the ID below with your actual spreadsheet ID from the URL.
-// URL format: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
-function setupSpreadsheet() {
-  var ssId = 'YOUR_SPREADSHEET_ID_HERE'; // <-- replace this
-  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ssId);
-  Logger.log('SPREADSHEET_ID saved: ' + ssId);
-}
-
-// Step 2: Run this to register the API key.
+// Run ONCE to register your API key.
+// Change the value below, then click Run.
 function setupApiKey() {
-  var key = 'patrol-2026-change-me'; // <-- replace with your own key
+  var key = 'patrol-2026-change-me'; // <-- CHANGE THIS before running
+  if (key === 'patrol-2026-change-me') {
+    throw new Error(
+      'ERROR: You must change the key value in setupApiKey() before running. ' +
+      'Edit the source code, replace patrol-2026-change-me with your own key, then run again.'
+    );
+  }
   PropertiesService.getScriptProperties().setProperty('API_KEY', key);
-  Logger.log('API_KEY saved: ' + key);
+  Logger.log('SUCCESS: API_KEY saved as: ' + key);
 }
 
-// Step 3: Run this to verify setup is correct.
+// Run to verify the setup is correct (spreadsheet connection + timestamp).
 function testHealth() {
-  var result = onHealth();
-  Logger.log(result.getContent());
+  try {
+    var result = onHealth();
+    Logger.log('RESULT: ' + result.getContent());
+  } catch (err) {
+    Logger.log('ERROR: ' + String(err));
+  }
 }
