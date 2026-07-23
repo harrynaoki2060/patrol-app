@@ -4,7 +4,7 @@
   "private": true,
   "description": "工事現場 安全パトロール点検アプリ",
   "engines": {
-    "node": "24.x"
+    "node": "20.x"
   },
   "dependencies": {
     "@vercel/kv": "^1.0.0"

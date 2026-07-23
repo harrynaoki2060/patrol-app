@@ -1,5 +1,11 @@
 {
   "version": 2,
+  "functions": {
+    "api/health.js":        { "maxDuration": 10 },
+    "api/records.js":       { "maxDuration": 30 },
+    "api/photo.js":         { "maxDuration": 30 },
+    "api/records/[id].js":  { "maxDuration": 30 }
+  },
   "headers": [
     {
       "source": "/sw.js",

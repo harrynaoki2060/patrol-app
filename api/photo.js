@@ -5,6 +5,11 @@
 
 const { kv } = require('@vercel/kv');
 
+// Vercel body parser を 4MB まで許可（base64 写真対応）
+module.exports.config = {
+  api: { bodyParser: { sizeLimit: '4mb' } }
+};
+
 function photoKey(gid, id, idx) { return 'patrol:' + gid + ':p:' + id + ':' + idx; }
 
 module.exports = async function handler(req, res) {
