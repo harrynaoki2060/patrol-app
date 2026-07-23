@@ -1,253 +1,254 @@
-// ============================================================
-// 安全パトロールアプリ — Google Apps Script Web App
-// ============================================================
-// デプロイ設定:
-//   実行者: 自分（スクリプトオーナー）
-//   アクセス: 全員
-// ============================================================
+// Google Apps Script Web App
+// 安全パトロールアプリ - 同期バックエンド
+// APIs used: SpreadsheetApp, DriveApp, PropertiesService, ContentService, Utilities
 
-// ── 定数 ────────────────────────────────────────────────────
-var SHEET_NAME   = 'Records';
-var LOG_SHEET    = 'SyncLog';
-var FOLDER_ROOT  = '安全パトロール';
-var COL_COUNT    = 17;
+var SHEET_RECORDS = 'Records';
+var SHEET_LOG     = 'SyncLog';
+var FOLDER_ROOT   = '安全パトロール'; // 安全パトロール
+var COL_COUNT     = 17;
 
-// ── ルーティング ─────────────────────────────────────────────
+// ------------------------------------
+// Routing
+// ------------------------------------
 
 function doGet(e) {
   try {
-    if (!checkApiKey(e)) return forbidden();
-    var action = (e.parameter && e.parameter.action) || '';
-    switch (action) {
-      case 'health':  return handleHealth();
-      case 'records': return handleGetRecords(e);
-      case 'record':  return handleGetRecord(e);
-      case 'photo':   return handleGetPhoto(e);
-      default:        return error('Unknown action: ' + action, 400);
+    if (!checkKey(e)) {
+      return jsonOut({ error: 'Forbidden', code: 403 });
     }
-  } catch (ex) {
-    return error(ex.message || String(ex), 500);
+    var action = getParam(e, 'action');
+    if (action === 'health')  return onHealth();
+    if (action === 'records') return onGetRecords(e);
+    if (action === 'record')  return onGetRecord(e);
+    if (action === 'photo')   return onGetPhoto(e);
+    return jsonOut({ error: 'Unknown action: ' + action, code: 400 });
+  } catch (err) {
+    return jsonOut({ error: String(err), code: 500 });
   }
 }
 
 function doPost(e) {
   try {
-    if (!checkApiKey(e)) return forbidden();
+    if (!checkKey(e)) {
+      return jsonOut({ error: 'Forbidden', code: 403 });
+    }
     var body   = JSON.parse(e.postData.contents);
     var action = body.action || '';
-    switch (action) {
-      case 'upsert': return handleUpsert(body);
-      case 'delete': return handleDelete(body);
-      case 'photo':  return handleSavePhoto(body);
-      case 'log':    return handleLog(body);
-      default:       return error('Unknown action: ' + action, 400);
-    }
-  } catch (ex) {
-    return error(ex.message || String(ex), 500);
+    if (action === 'upsert') return onUpsert(body);
+    if (action === 'delete') return onDelete(body);
+    if (action === 'photo')  return onSavePhoto(body);
+    if (action === 'log')    return onLog(body);
+    return jsonOut({ error: 'Unknown action: ' + action, code: 400 });
+  } catch (err) {
+    return jsonOut({ error: String(err), code: 500 });
   }
 }
 
-// ── 認証 ──────────────────────────────────────────────────────
+// ------------------------------------
+// Auth
+// ------------------------------------
 
-function checkApiKey(e) {
-  // GAS は任意ヘッダーを受け取れないため、クエリパラメーターで受け渡す
-  var key = (e.parameter && e.parameter.key) || '';
+function checkKey(e) {
   var stored = PropertiesService.getScriptProperties().getProperty('API_KEY');
-  if (!stored) return true;  // API_KEY 未設定の場合は認証スキップ（初回セットアップ用）
+  if (!stored) return true; // no key set = open (initial setup)
+  var key = getParam(e, 'key') || '';
   return key === stored;
 }
 
-// ── ヘルスチェック ────────────────────────────────────────────
+// ------------------------------------
+// Health check
+// ------------------------------------
 
-function handleHealth() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  return ok({
+function onHealth() {
+  var props = PropertiesService.getScriptProperties();
+  var ssId  = props.getProperty('SPREADSHEET_ID');
+  return jsonOut({
     ok: true,
-    spreadsheetId: ss.getId(),
-    spreadsheetName: ss.getName(),
+    spreadsheetId: ssId || 'not set',
     timestamp: jstNow()
   });
 }
 
-// ── レコード取得（GET） ───────────────────────────────────────
+// ------------------------------------
+// GET records
+// ------------------------------------
 
-function handleGetRecords(e) {
-  var updatedSince = (e.parameter && e.parameter.updatedSince) || '';
-  var sheet = getOrCreateSheet(SHEET_NAME);
-  var rows  = sheet.getDataRange().getValues();
-
-  // 1行目はヘッダー
-  if (rows.length <= 1) return ok({ records: [], count: 0 });
-
+function onGetRecords(e) {
+  var updatedSince = getParam(e, 'updatedSince') || '';
+  var sheet  = getSheet(SHEET_RECORDS);
+  var data   = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return jsonOut({ records: [], count: 0 });
+  }
   var records = [];
-  for (var i = 1; i < rows.length; i++) {
-    var row = rows[i];
-    if (!row[0]) continue;  // id が空の行はスキップ
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row[0]) continue;
     var rec = rowToRecord(row);
-
-    // updatedSince フィルター（ISO文字列で比較）
     if (updatedSince && rec.updatedAt <= updatedSince) continue;
-
     records.push(rec);
   }
-
-  return ok({ records: records, count: records.length });
+  return jsonOut({ records: records, count: records.length });
 }
 
-function handleGetRecord(e) {
-  var id    = e.parameter && e.parameter.id;
-  if (!id) return error('id is required', 400);
-  var sheet = getOrCreateSheet(SHEET_NAME);
-  var row   = findRowById(sheet, Number(id));
-  if (!row) return error('Record not found', 404);
-  return ok({ record: rowToRecord(row) });
+function onGetRecord(e) {
+  var id = getParam(e, 'id');
+  if (!id) return jsonOut({ error: 'id is required', code: 400 });
+  var sheet = getSheet(SHEET_RECORDS);
+  var row   = findRow(sheet, Number(id));
+  if (!row) return jsonOut({ error: 'Record not found', code: 404 });
+  return jsonOut({ record: rowToRecord(row) });
 }
 
-// ── レコード保存（POST upsert） ───────────────────────────────
+// ------------------------------------
+// POST upsert
+// ------------------------------------
 
-function handleUpsert(body) {
+function onUpsert(body) {
   var record = body.record;
-  if (!record || !record.id) return error('record.id is required', 400);
-
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    var sheet  = getOrCreateSheet(SHEET_NAME);
-    var rowNum = findRowNumById(sheet, Number(record.id));
-    var now    = jstNow();
-    var rowData = recordToRow(record, now);
-
-    if (rowNum) {
-      // 既存行を上書き
-      sheet.getRange(rowNum, 1, 1, COL_COUNT).setValues([rowData]);
-    } else {
-      // 末尾に追加
-      var lastRow = sheet.getLastRow();
-      if (lastRow === 0) {
-        // シートが空の場合はヘッダーを書き込む
-        writeHeader(sheet);
-        sheet.getRange(2, 1, 1, COL_COUNT).setValues([rowData]);
-      } else {
-        sheet.getRange(lastRow + 1, 1, 1, COL_COUNT).setValues([rowData]);
-      }
-    }
-    return ok({ id: record.id, updatedAt: now });
-  } finally {
-    lock.releaseLock();
+  if (!record || !record.id) {
+    return jsonOut({ error: 'record.id is required', code: 400 });
   }
+  var sheet  = getSheet(SHEET_RECORDS);
+  var rowNum = findRowNum(sheet, Number(record.id));
+  var now    = jstNow();
+  var rowData = recordToRow(record, now);
+  if (rowNum) {
+    sheet.getRange(rowNum, 1, 1, COL_COUNT).setValues([rowData]);
+  } else {
+    var last = sheet.getLastRow();
+    sheet.getRange(last + 1, 1, 1, COL_COUNT).setValues([rowData]);
+  }
+  return jsonOut({ id: record.id, updatedAt: now });
 }
 
-// ── レコード論理削除（POST delete） ──────────────────────────
+// ------------------------------------
+// POST delete (logical)
+// ------------------------------------
 
-function handleDelete(body) {
+function onDelete(body) {
   var id = body.id;
-  if (!id) return error('id is required', 400);
-
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    var sheet  = getOrCreateSheet(SHEET_NAME);
-    var rowNum = findRowNumById(sheet, Number(id));
-    if (!rowNum) return error('Record not found', 404);
-
-    var now = jstNow();
-    // deleted = TRUE, updatedAt 更新のみ（P列=16, Q列=17）
-    sheet.getRange(rowNum, 16).setValue(now);   // updatedAt
-    sheet.getRange(rowNum, 17).setValue(true);  // deleted
-    return ok({ id: id, deletedAt: now });
-  } finally {
-    lock.releaseLock();
-  }
+  if (!id) return jsonOut({ error: 'id is required', code: 400 });
+  var sheet  = getSheet(SHEET_RECORDS);
+  var rowNum = findRowNum(sheet, Number(id));
+  if (!rowNum) return jsonOut({ error: 'Record not found', code: 404 });
+  var now = jstNow();
+  sheet.getRange(rowNum, 16).setValue(now);   // updatedAt (col P)
+  sheet.getRange(rowNum, 17).setValue(true);  // deleted   (col Q)
+  return jsonOut({ id: id, deletedAt: now });
 }
 
-// ── 写真保存（POST photo） ────────────────────────────────────
+// ------------------------------------
+// POST photo (Drive upload)
+// ------------------------------------
 
-function handleSavePhoto(body) {
-  var required = ['recordId', 'base64', 'name', 'mimeType', 'yearMonth'];
-  for (var i = 0; i < required.length; i++) {
-    if (!body[required[i]]) return error(required[i] + ' is required', 400);
-  }
+function onSavePhoto(body) {
+  if (!body.recordId)  return jsonOut({ error: 'recordId required', code: 400 });
+  if (!body.base64)    return jsonOut({ error: 'base64 required',   code: 400 });
+  if (!body.name)      return jsonOut({ error: 'name required',     code: 400 });
+  if (!body.mimeType)  return jsonOut({ error: 'mimeType required', code: 400 });
+  if (!body.yearMonth) return jsonOut({ error: 'yearMonth required',code: 400 });
 
-  var folder   = getOrCreateFolder(body.yearMonth);
-  var decoded  = Utilities.base64Decode(body.base64.replace(/^data:[^,]+,/, ''));
-  var blob     = Utilities.newBlob(decoded, body.mimeType, body.name);
-  var file     = folder.createFile(blob);
+  var b64     = body.base64.replace(/^data:[^,]+,/, '');
+  var decoded = Utilities.base64Decode(b64);
+  var blob    = Utilities.newBlob(decoded, body.mimeType, body.name);
+  var folder  = getOrCreateFolder(body.yearMonth);
+  var file    = folder.createFile(blob);
 
-  // 閲覧共有を「リンクを知っている全員」に設定
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
   var fileId = file.getId();
   var url    = 'https://drive.google.com/uc?export=view&id=' + fileId;
-
-  return ok({ fileId: fileId, url: url, name: body.name });
+  return jsonOut({ fileId: fileId, url: url, name: body.name });
 }
 
-function handleGetPhoto(e) {
-  var fileId = e.parameter && e.parameter.fileId;
-  if (!fileId) return error('fileId is required', 400);
+function onGetPhoto(e) {
+  var fileId = getParam(e, 'fileId');
+  if (!fileId) return jsonOut({ error: 'fileId required', code: 400 });
   var file = DriveApp.getFileById(fileId);
   var url  = 'https://drive.google.com/uc?export=view&id=' + fileId;
-  return ok({ fileId: fileId, url: url, name: file.getName() });
+  return jsonOut({ fileId: fileId, url: url, name: file.getName() });
 }
 
-// ── 同期ログ（POST log） ──────────────────────────────────────
+// ------------------------------------
+// POST log
+// ------------------------------------
 
-function handleLog(body) {
-  var sheet   = getOrCreateSheet(LOG_SHEET);
-  var lastRow = sheet.getLastRow();
-  if (lastRow === 0) {
-    sheet.getRange(1, 1, 1, 6).setValues([[
-      '同期日時', '端末UA', '送信件数', '取得件数', '写真枚数', 'エラー'
-    ]]);
-    lastRow = 1;
-  }
-  sheet.getRange(lastRow + 1, 1, 1, 6).setValues([[
+function onLog(body) {
+  var sheet = getLogSheet();
+  var last  = sheet.getLastRow();
+  sheet.getRange(last + 1, 1, 1, 6).setValues([[
     jstNow(),
-    body.ua         || '',
-    body.sent       || 0,
-    body.received   || 0,
-    body.photos     || 0,
-    body.errorMsg   || ''
+    body.ua       || '',
+    body.sent     || 0,
+    body.received || 0,
+    body.photos   || 0,
+    body.errorMsg || ''
   ]]);
-  return ok({ logged: true });
+  return jsonOut({ logged: true });
 }
 
-// ── ヘルパー: Spreadsheet ─────────────────────────────────────
+// ------------------------------------
+// Spreadsheet helpers
+// ------------------------------------
 
-function getOrCreateSheet(name) {
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+function getSS() {
+  var props = PropertiesService.getScriptProperties();
+  var ssId  = props.getProperty('SPREADSHEET_ID');
+  if (ssId) {
+    return SpreadsheetApp.openById(ssId);
+  }
+  // Fallback: bound script (created from inside a spreadsheet)
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+function getSheet(name) {
+  var ss    = getSS();
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
-    if (name === SHEET_NAME) writeHeader(sheet);
+    if (name === SHEET_RECORDS) initHeader(sheet);
   }
   return sheet;
 }
 
-function writeHeader(sheet) {
-  var headers = [
-    'id','date','projectName','termStart','termEnd',
-    'contractor','subcontractor','inspector','progressRate',
-    'notes1','notes2','notes3','checks',
-    'photoCount','photoMeta','updatedAt','deleted'
+function getLogSheet() {
+  var ss    = getSS();
+  var sheet = ss.getSheetByName(SHEET_LOG);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_LOG);
+    sheet.getRange(1, 1, 1, 6).setValues([[
+      'timestamp', 'ua', 'sent', 'received', 'photos', 'error'
+    ]]);
+    sheet.getRange(1, 1, 1, 6).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+function initHeader(sheet) {
+  var h = [
+    'id', 'date', 'projectName', 'termStart', 'termEnd',
+    'contractor', 'subcontractor', 'inspector', 'progressRate',
+    'notes1', 'notes2', 'notes3', 'checks',
+    'photoCount', 'photoMeta', 'updatedAt', 'deleted'
   ];
-  sheet.getRange(1, 1, 1, COL_COUNT).setValues([headers]);
+  sheet.getRange(1, 1, 1, COL_COUNT).setValues([h]);
   sheet.getRange(1, 1, 1, COL_COUNT).setFontWeight('bold');
   sheet.setFrozenRows(1);
 }
 
-function findRowById(sheet, id) {
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (Number(rows[i][0]) === id) return rows[i];
+function findRow(sheet, id) {
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (Number(data[i][0]) === id) return data[i];
   }
   return null;
 }
 
-function findRowNumById(sheet, id) {
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (Number(rows[i][0]) === id) return i + 1;  // 1-indexed
+function findRowNum(sheet, id) {
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (Number(data[i][0]) === id) return i + 1;
   }
   return null;
 }
@@ -266,11 +267,11 @@ function rowToRecord(row) {
     notes1:        String(row[9]  || ''),
     notes2:        String(row[10] || ''),
     notes3:        String(row[11] || ''),
-    checks:        safeParseJson(row[12], {}),
+    checks:        safeJson(row[12], {}),
     photoCount:    Number(row[13] || 0),
-    photoMeta:     safeParseJson(row[14], []),
+    photoMeta:     safeJson(row[14], []),
     updatedAt:     String(row[15] || ''),
-    deleted:       row[16] === true || row[16] === 'TRUE'
+    deleted:       row[16] === true || String(row[16]) === 'TRUE'
   };
 }
 
@@ -296,69 +297,79 @@ function recordToRow(record, now) {
   ];
 }
 
-// ── ヘルパー: Drive ───────────────────────────────────────────
+// ------------------------------------
+// Drive helpers
+// ------------------------------------
 
 function getOrCreateFolder(yearMonth) {
-  // yearMonth: 'YYYY/MM'
-  var parts  = yearMonth.split('/');
-  var year   = parts[0];
-  var month  = parts[1];
+  // yearMonth = 'YYYY/MM'
+  var parts = yearMonth.split('/');
+  var year  = parts[0];
+  var month = parts[1];
 
-  // ルートフォルダ
-  var roots  = DriveApp.getFoldersByName(FOLDER_ROOT);
-  var root   = roots.hasNext() ? roots.next() : DriveApp.createFolder(FOLDER_ROOT);
+  var rootIt = DriveApp.getFoldersByName(FOLDER_ROOT);
+  var root   = rootIt.hasNext() ? rootIt.next() : DriveApp.createFolder(FOLDER_ROOT);
 
-  // 年フォルダ
-  var years  = root.getFoldersByName(year);
-  var yearF  = years.hasNext() ? years.next() : root.createFolder(year);
+  var yearIt = root.getFoldersByName(year);
+  var yearF  = yearIt.hasNext() ? yearIt.next() : root.createFolder(year);
 
-  // 月フォルダ
-  var months = yearF.getFoldersByName(month);
-  return months.hasNext() ? months.next() : yearF.createFolder(month);
+  var monIt  = yearF.getFoldersByName(month);
+  return monIt.hasNext() ? monIt.next() : yearF.createFolder(month);
 }
 
-// ── ヘルパー: 共通 ────────────────────────────────────────────
+// ------------------------------------
+// Utility helpers
+// ------------------------------------
+
+function getParam(e, key) {
+  return (e && e.parameter && e.parameter[key]) ? e.parameter[key] : '';
+}
 
 function jstNow() {
   var d   = new Date();
   var jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  var pad = function(n) { return n < 10 ? '0' + n : String(n); };
-  return jst.getUTCFullYear() + '-' +
-    pad(jst.getUTCMonth() + 1) + '-' +
-    pad(jst.getUTCDate())      + ' ' +
-    pad(jst.getUTCHours())     + ':' +
-    pad(jst.getUTCMinutes())   + ':' +
-    pad(jst.getUTCSeconds());
+  var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+  return jst.getUTCFullYear() + '-'
+    + pad(jst.getUTCMonth() + 1) + '-'
+    + pad(jst.getUTCDate())      + ' '
+    + pad(jst.getUTCHours())     + ':'
+    + pad(jst.getUTCMinutes())   + ':'
+    + pad(jst.getUTCSeconds());
 }
 
-function safeParseJson(val, fallback) {
+function safeJson(val, fallback) {
   if (!val || val === '') return fallback;
   try { return JSON.parse(val); } catch (e) { return fallback; }
 }
 
-function ok(data) {
+function jsonOut(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function error(msg, code) {
-  return ContentService
-    .createTextOutput(JSON.stringify({ error: msg, code: code || 500 }))
-    .setMimeType(ContentService.MimeType.JSON);
+// ------------------------------------
+// One-time setup (run manually from editor)
+// ------------------------------------
+
+// Step 1: Run this FIRST to register the spreadsheet ID.
+// Replace the ID below with your actual spreadsheet ID from the URL.
+// URL format: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
+function setupSpreadsheet() {
+  var ssId = 'YOUR_SPREADSHEET_ID_HERE'; // <-- replace this
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ssId);
+  Logger.log('SPREADSHEET_ID saved: ' + ssId);
 }
 
-function forbidden() {
-  return ContentService
-    .createTextOutput(JSON.stringify({ error: 'Forbidden: invalid API key', code: 403 }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-// ── 初回セットアップ用（手動実行） ────────────────────────────
-// スクリプトエディタから一度だけ実行して API キーを登録する
-
+// Step 2: Run this to register the API key.
 function setupApiKey() {
-  var key = 'patrol-2026-change-me';  // ← ここを自分のキーに書き換えてから実行
+  var key = 'patrol-2026-change-me'; // <-- replace with your own key
   PropertiesService.getScriptProperties().setProperty('API_KEY', key);
-  Logger.log('API_KEY を登録しました: ' + key);
+  Logger.log('API_KEY saved: ' + key);
+}
+
+// Step 3: Run this to verify setup is correct.
+function testHealth() {
+  var result = onHealth();
+  Logger.log(result.getContent());
 }
