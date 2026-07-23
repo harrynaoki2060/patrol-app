@@ -714,12 +714,20 @@
     // ============================================================
     //  状態
     // ============================================================
+    var APP_VERSION = '1.7.0';
     var checks  = {};
     var photos  = [];
     var records = [];
-    var db          = null;    // IndexedDB instance
-    var isDirty     = false;   // 未保存の変更あり
-    var draftTimer  = null;    // 自動保存タイマー
+    var db          = null;
+    var isDirty     = false;
+    var draftTimer  = null;
+    var syncStats = {
+      lastSyncAt:     null,
+      lastSentCount:  0,
+      lastRcvCount:   0,
+      lastApiMs:      null,
+      lastFailReason: ''
+    };
 
     // ============================================================
     //  工事進捗率スライダー
@@ -953,7 +961,7 @@
       var css = [
         '@page{size:A4 portrait;margin:15mm}',
         '*{box-sizing:border-box;margin:0;padding:0}',
-        'body{font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:9pt;color:#000;background:#fff}',
+        'body{font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:9pt;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}',
 
         /* 印刷バー */
         '.pbar{position:fixed;top:0;left:0;right:0;background:#0f766e;padding:10px 16px;display:flex;align-items:center;gap:12px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
@@ -1010,12 +1018,13 @@
         '.nb{font-size:9pt;line-height:1.7;padding:5pt 8pt;border:1pt solid #e5e7eb;border-radius:3pt;min-height:22pt;white-space:pre-wrap}',
         '.empty{font-size:9pt;color:#9ca3af;font-style:italic;padding:3pt 0}',
 
-        /* 写真列（3枚/ページ） */
+        /* 写真列（3枚/ページ固定）*/
         '.photo-col{display:block}',
-        '.pitem{display:block;height:79mm;overflow:hidden;margin-bottom:2mm;break-inside:avoid;page-break-inside:avoid}',
+        '.pitem{display:block;height:75mm;overflow:hidden;margin-bottom:2mm;break-inside:avoid;page-break-inside:avoid}',
         '.pitem:last-child{margin-bottom:0}',
-        '.pitem img{display:block;width:100%;height:71mm;object-fit:contain;background-color:#f3f4f6;border:1pt solid #e5e7eb;border-radius:3pt}',
-        '.pcap{height:8mm;line-height:8mm;text-align:center;font-size:8pt;color:#374151;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 4pt}'
+        '.pitem img{display:block;width:100%;height:67mm;object-fit:contain;background-color:#f3f4f6;border:1pt solid #e5e7eb;border-radius:3pt}',
+        '.pcap{height:8mm;line-height:8mm;text-align:center;font-size:8pt;color:#374151;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 4pt}',
+        '@media print{.page{padding:0}}'
       ].join('');
 
       return '<!DOCTYPE html>'
@@ -1115,7 +1124,7 @@
       var css = [
         '@page{size:A4 portrait;margin:15mm}',
         '*{box-sizing:border-box;margin:0;padding:0}',
-        'body{font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:9pt;color:#000;background:#fff}',
+        'body{font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:9pt;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}',
         '.pbar{position:fixed;top:0;left:0;right:0;background:#7c3aed;padding:10px 16px;display:flex;align-items:center;gap:12px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
         '.pbtn{padding:9px 20px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation}',
         '.pnote{font-size:12px;color:rgba(255,255,255,.9)}',
@@ -1148,10 +1157,11 @@
         '.att{color:#d97706;background:#fef3c7}',
         '.empty{font-size:9pt;color:#9ca3af;font-style:italic;padding:3pt 0}',
         '.photo-col{display:block}',
-        '.pitem{display:block;height:79mm;overflow:hidden;margin-bottom:2mm;break-inside:avoid;page-break-inside:avoid}',
+        '.pitem{display:block;height:75mm;overflow:hidden;margin-bottom:2mm;break-inside:avoid;page-break-inside:avoid}',
         '.pitem:last-child{margin-bottom:0}',
-        '.pitem img{display:block;width:100%;height:71mm;object-fit:contain;background-color:#f3f4f6;border:1pt solid #e5e7eb;border-radius:3pt}',
-        '.pcap{height:8mm;line-height:8mm;text-align:center;font-size:8pt;color:#374151;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 4pt}'
+        '.pitem img{display:block;width:100%;height:67mm;object-fit:contain;background-color:#f3f4f6;border:1pt solid #e5e7eb;border-radius:3pt}',
+        '.pcap{height:8mm;line-height:8mm;text-align:center;font-size:8pt;color:#374151;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 4pt}',
+        '@media print{.page{padding:0}}'
       ].join('');
 
       return '<!DOCTYPE html><html lang="ja"><head>'
@@ -1456,7 +1466,7 @@
               showToast('写真は' + PHOTO_MAX_COUNT + '枚までです');
               return;
             }
-            photos.push({ dataUrl: dataUrl, name: '', takenAt: new Date().toISOString() });
+            photos.push({ dataUrl: dataUrl, name: '', takenAt: jstNowStr() });
             refreshPhotos();
             markDirty();
             var grid = document.getElementById('photo-grid');
@@ -1872,9 +1882,25 @@
       toastTimer = setTimeout(function() { el.style.display = 'none'; }, 2200);
     }
 
-    function todayStr() {
-      return new Date().toISOString().split('T')[0];
+    // JST（UTC+9）固定 — UTC変換禁止
+    function jstDateStr() {
+      var jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+      var y  = jst.getUTCFullYear();
+      var mo = ('0' + (jst.getUTCMonth() + 1)).slice(-2);
+      var d  = ('0' + jst.getUTCDate()).slice(-2);
+      return y + '-' + mo + '-' + d;
     }
+    function jstNowStr() {
+      var jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+      var y  = jst.getUTCFullYear();
+      var mo = ('0' + (jst.getUTCMonth() + 1)).slice(-2);
+      var d  = ('0' + jst.getUTCDate()).slice(-2);
+      var h  = ('0' + jst.getUTCHours()).slice(-2);
+      var mi = ('0' + jst.getUTCMinutes()).slice(-2);
+      var s  = ('0' + jst.getUTCSeconds()).slice(-2);
+      return y + '-' + mo + '-' + d + 'T' + h + ':' + mi + ':' + s + '+09:00';
+    }
+    function todayStr() { return jstDateStr(); }
 
     // ============================================================
     //  IndexedDB ヘルパー
@@ -1959,7 +1985,7 @@
         notes3:         document.getElementById('f-notes3').value         || '',
         progressRate:   parseInt(document.getElementById('f-rate').value, 10) || 0,
         photos:         photos.slice(),
-        savedAt:        new Date().toISOString()
+        savedAt:        jstNowStr()
       };
     }
 
@@ -2149,12 +2175,14 @@
       if (estBytes > SYNC_MAX_BYTES) {
         var mb = (estBytes / 1024 / 1024).toFixed(1);
         showToast('写真容量が大きすぎます（' + mb + 'MB）。写真を減らしてください');
+        syncStats.lastFailReason = 'サイズ超過 ' + mb + 'MB (id=' + record.id + ')';
         console.warn('[sync] サイズ超過 id=' + record.id + ' ' + mb + 'MB');
         cb(false);
         return;
       }
+      var t0   = Date.now();
       var ctrl = new AbortController();
-      var timer = setTimeout(function() { ctrl.abort(); }, 10000);
+      var timer = setTimeout(function() { ctrl.abort(); }, 30000); // 30s
       fetch('/api/records', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2163,13 +2191,19 @@
       })
       .then(function(r) {
         clearTimeout(timer);
+        syncStats.lastApiMs = Date.now() - t0;
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
       .then(function() { cb(true); })
       .catch(function(e) {
         clearTimeout(timer);
-        console.warn('[sync] レコード送信失敗 id=' + record.id, e && e.message);
+        syncStats.lastApiMs = Date.now() - t0;
+        var reason = (e && e.name === 'AbortError')
+          ? 'タイムアウト（30秒）'
+          : (e && e.message) || '不明なエラー';
+        syncStats.lastFailReason = reason + ' (id=' + record.id + ')';
+        console.warn('[sync] レコード送信失敗 id=' + record.id, reason);
         cb(false);
       });
     }
@@ -2224,6 +2258,32 @@
 
         var html = '';
 
+        // ── 端末・環境情報 ───────────────────────────────
+        var ua = navigator.userAgent;
+        var uaShort = ua.length > 100 ? ua.slice(0, 100) + '…' : ua;
+        html += '<div class="diag-sec"><div class="diag-sec-ttl">🖥️ 端末・環境情報</div>';
+        html += row('アプリ Version', APP_VERSION);
+        html += row('ブラウザ (UA)',  uaShort);
+        html += row('言語 / オンライン', (navigator.language || '―') + '　' + (navigator.onLine ? '🟢 オンライン' : '🔴 オフライン'));
+        html += '</div>';
+
+        // ── SW Version（非同期で埋める）────────────────────
+        html += '<div class="diag-sec"><div class="diag-sec-ttl">⚙️ Service Worker</div>';
+        html += '<div class="diag-row"><span class="diag-label">SW キャッシュ名</span><span id="diag-sw-ver" class="diag-val diag-ok">確認中…</span></div>';
+        html += '<div class="diag-row"><span class="diag-label">SW 登録状態</span><span id="diag-sw-state" class="diag-val diag-ok">確認中…</span></div>';
+        html += '</div>';
+
+        // ── 同期ログ ────────────────────────────────────
+        var noSync = !syncStats.lastSyncAt;
+        html += '<div class="diag-sec"><div class="diag-sec-ttl">🔄 最終同期ログ</div>';
+        html += row('最後の同期日時',  noSync ? '未同期' : syncStats.lastSyncAt, noSync);
+        html += row('最後の送信件数',  noSync ? '―' : syncStats.lastSentCount + ' 件');
+        html += row('最後の取得件数',  noSync ? '―' : syncStats.lastRcvCount  + ' 件');
+        html += row('API 応答時間',    syncStats.lastApiMs !== null ? syncStats.lastApiMs + ' ms' : '―',
+                                       syncStats.lastApiMs > 5000);
+        html += row('同期失敗理由',    syncStats.lastFailReason || 'なし', !!syncStats.lastFailReason);
+        html += '</div>';
+
         html += '<div class="diag-sec"><div class="diag-sec-ttl">📊 サマリ</div>';
         html += row('全レコード数',          records.length+' 件');
         html += row('未同期レコード数',      unsynced.length+' 件', unsynced.length>0);
@@ -2274,6 +2334,38 @@
         html += '<div class="diag-note">● = 未同期　✓ = 同期済み</div></div>';
 
         body.innerHTML = html;
+
+        // SW キャッシュ名・登録状態を非同期で埋める
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            var el = document.getElementById('diag-sw-ver');
+            if (el) el.textContent = keys.length ? keys.join(', ') : 'キャッシュなし';
+          }).catch(function() {
+            var el = document.getElementById('diag-sw-ver');
+            if (el) el.textContent = '取得不可';
+          });
+        } else {
+          var el = document.getElementById('diag-sw-ver');
+          if (el) el.textContent = 'Cache API 非対応';
+        }
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistration().then(function(reg) {
+            var el = document.getElementById('diag-sw-state');
+            if (!el) return;
+            if (!reg) { el.textContent = '未登録'; el.className = 'diag-val diag-warn'; return; }
+            var states = [];
+            if (reg.active)    states.push('active: ' + reg.active.state);
+            if (reg.waiting)   states.push('⚠ waiting あり');
+            if (reg.installing) states.push('installing…');
+            el.textContent = states.join(' / ') || '登録済';
+          }).catch(function() {
+            var el = document.getElementById('diag-sw-state');
+            if (el) { el.textContent = '取得失敗'; el.className = 'diag-val diag-warn'; }
+          });
+        } else {
+          var el2 = document.getElementById('diag-sw-state');
+          if (el2) el2.textContent = 'SW 非対応ブラウザ';
+        }
       }, 30);
     }
 
@@ -2294,11 +2386,14 @@
       function next(idx) {
         if (idx >= total) {
           if (btn) { btn.disabled = false; btn.textContent = '☁ 今すぐ同期'; }
+          syncStats.lastSentCount = done;
+          syncStats.lastSyncAt    = jstNowStr();
           var msg = done + '件同期しました ✓';
           if (failed) { msg += '（' + failed + '件失敗）'; }
           showToast(msg);
           refreshSyncStatus();
           renderHistory();
+          fetchAndMerge(); // 同期完了後に他端末データを必ず取得
           return;
         }
         var r = unsynced[idx];
@@ -2322,10 +2417,14 @@
 
     // サーバーのレコードとローカルをマージ
     function fetchAndMerge() {
+      var t0 = Date.now();
       fetch('/api/records')
-        .then(function(r) { if (!r.ok) throw new Error(); return r.json(); })
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function(srvRecs) {
           if (!Array.isArray(srvRecs)) return;
+          syncStats.lastRcvCount = srvRecs.length;
+          if (!syncStats.lastSyncAt) syncStats.lastSyncAt = jstNowStr();
+          console.log('[sync] fetchAndMerge 取得件数:', srvRecs.length, (Date.now()-t0)+'ms');
           var localMap = {};
           records.forEach(function(r) { localMap[r.id] = r; });
 
